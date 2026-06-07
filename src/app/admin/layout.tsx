@@ -22,14 +22,14 @@ export default async function AdminLayout({
       <nav className="nav">
         <div className="nav-inner">
           <Link href="/admin/photos" className="nav-brand">
-            Photo Drop
+            <span className="nav-brand-text">Photo Drop</span>
           </Link>
           <div className="nav-links">
             <Link href="/admin/photos">Photos</Link>
             <Link href="/admin/users">Admin users</Link>
           </div>
           <div className="nav-spacer" />
-          <span className="muted small">{session.username}</span>
+          <span className="muted small nav-user">{session.username}</span>
           <ThemeToggle />
           <LogoutButton />
         </div>

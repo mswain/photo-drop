@@ -901,6 +901,77 @@ table.table tbody tr:last-child td {
     transform: translateY(6px) scale(0.99);
   }
 }
+/* ---- Mobile ---- */
+@media (max-width: 640px) {
+  body {
+    font-size: 14px;
+  }
+  h1 {
+    font-size: 1.3rem;
+  }
+
+  .container {
+    padding: 1.1rem 0.9rem 4.5rem;
+  }
+
+  /* Nav: tighten spacing so the single row fits a phone width, and drop the
+     signed-in username (shown on wider screens) to reclaim room. */
+  .nav-inner {
+    padding: 0.6rem 0.8rem;
+    gap: 0.35rem;
+  }
+  .nav-links {
+    gap: 0.1rem;
+  }
+  .nav-links a {
+    padding: 0.35rem 0.5rem;
+  }
+  /* Collapse the brand to its logo mark and drop the signed-in username so the
+     single-row nav fits a phone without overflowing/scrolling. */
+  .nav-brand-text {
+    display: none;
+  }
+  .nav-user {
+    display: none;
+  }
+
+  /* Smaller row thumbnails keep the photos table from getting very tall/wide. */
+  .thumb-box {
+    width: 64px;
+    height: 64px;
+  }
+
+  table.table th,
+  table.table td {
+    padding: 0.5rem 0.45rem;
+  }
+
+  /* Floating selection bar: span most of the width and tighten so its actions
+     don't overflow on a narrow screen. */
+  .bulk-bar {
+    left: 0.6rem;
+    right: 0.6rem;
+    transform: none;
+    max-width: none;
+    gap: 0.5rem;
+    padding: 0.45rem 0.55rem 0.45rem 0.9rem;
+    justify-content: space-between;
+  }
+  @keyframes slideup {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+  }
+
+  .modal-card {
+    padding: 0.9rem;
+  }
+  .tab {
+    padding: 0.6rem 0.7rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;
