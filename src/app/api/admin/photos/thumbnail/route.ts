@@ -6,7 +6,7 @@ import {
   putObject,
   presignDownload,
 } from "@/lib/s3";
-import { thumbnailKey, isThumbnailKey } from "@/lib/ids";
+import { thumbnailKey, isThumbnailKey, isManagedKey } from "@/lib/ids";
 import { generateThumbnail, UnsupportedImageError } from "@/lib/thumbnail";
 import { env } from "@/lib/env";
 import { handle, json, badRequest } from "@/lib/http";
@@ -25,13 +25,7 @@ export const GET = handle(async (req: NextRequest) => {
   const root = env.s3KeyPrefix();
   const key = new URL(req.url).searchParams.get("key");
 
-  if (
-    !key ||
-    key.length <= root.length ||
-    !key.startsWith(root) ||
-    key.includes("..") ||
-    isThumbnailKey(key, root)
-  ) {
+  if (!isManagedKey(key, root) || isThumbnailKey(key, root)) {
     return badRequest("A valid image key is required");
   }
 

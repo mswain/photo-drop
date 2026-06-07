@@ -43,6 +43,24 @@ export function buildObjectKey(params: {
   return `${params.prefix}${name}`;
 }
 
+/**
+ * True for a client-supplied object key that's safe to act on: a non-empty key
+ * under the configured root, living inside a folder, with no path-traversal
+ * segments. Narrows `string | null` so callers can drop a separate null check.
+ */
+export function isManagedKey(
+  key: string | null | undefined,
+  rootPrefix: string,
+): key is string {
+  return (
+    typeof key === "string" &&
+    key.length > rootPrefix.length &&
+    key.startsWith(rootPrefix) &&
+    key.includes("/") &&
+    !key.includes("..")
+  );
+}
+
 /** Suffix appended to a slug to form its sibling thumbnails directory. */
 export const THUMBNAIL_DIR_SUFFIX = "-thumbnails";
 

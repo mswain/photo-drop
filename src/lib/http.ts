@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { UnauthorizedError } from "./session";
-import { SESSION_COOKIE } from "./auth";
+import { SESSION_COOKIE, clearSessionCookieOptions } from "./auth";
 
 export function json(data: unknown, init?: ResponseInit) {
   return NextResponse.json(data, init);
@@ -19,13 +19,7 @@ export function unauthorized(message = "Unauthorized") {
   const res = NextResponse.json({ error: message }, { status: 401 });
   // Drop a stale/invalid session cookie so the client recovers cleanly
   // (re-login) instead of looping on a token middleware still considers valid.
-  res.cookies.set(SESSION_COOKIE, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0,
-  });
+  res.cookies.set(SESSION_COOKIE, "", clearSessionCookieOptions());
   return res;
 }
 

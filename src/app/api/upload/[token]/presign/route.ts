@@ -93,7 +93,7 @@ export const POST = handle(async (req: NextRequest, ctx: Ctx) => {
   const uploads = await Promise.all(
     files.map(async (f) => {
       const key = buildObjectKey({ prefix, contentType: f.contentType });
-      const url = await presignUpload(key);
+      const url = await presignUpload(key, f.size);
       return { key, url };
     }),
   );

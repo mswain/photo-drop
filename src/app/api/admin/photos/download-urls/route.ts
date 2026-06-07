@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { requireSession } from "@/lib/session";
 import { presignDownload } from "@/lib/s3";
+import { isManagedKey } from "@/lib/ids";
 import { downloadUrlsSchema } from "@/lib/validation";
 import { env } from "@/lib/env";
 import { handle, json, badRequest } from "@/lib/http";
@@ -23,9 +24,7 @@ export const POST = handle(async (req: NextRequest) => {
   }
 
   const root = env.s3KeyPrefix();
-  const keys = parsed.data.keys.filter(
-    (k) => k.length > root.length && k.startsWith(root) && !k.includes(".."),
-  );
+  const keys = parsed.data.keys.filter((k) => isManagedKey(k, root));
   if (keys.length === 0) {
     return badRequest("No valid object keys");
   }

@@ -34,11 +34,19 @@ export function s3(): S3Client {
  * uploaded originals are only ever served back as attachments, never inline,
  * so a malicious stored content-type can't render as script. See
  * `presignDownload` (always attachment) and the SVG block in the presign route.
+ *
+ * When `contentLength` is given it is signed, so the browser must PUT exactly
+ * that many bytes — this is what actually enforces the per-file size cap (the
+ * request body's Content-Length is unspoofable, unlike the self-reported size).
  */
-export async function presignUpload(key: string): Promise<string> {
+export async function presignUpload(
+  key: string,
+  contentLength?: number,
+): Promise<string> {
   const command = new PutObjectCommand({
     Bucket: env.s3Bucket(),
     Key: key,
+    ContentLength: contentLength,
   });
   return getSignedUrl(s3(), command, {
     expiresIn: env.presignExpirySeconds(),
@@ -50,7 +58,9 @@ export async function presignDownload(
   key: string,
   opts: { download?: boolean } = {},
 ): Promise<string> {
-  const filename = key.split("/").pop() ?? "download";
+  // Strip quotes/control chars so the filename can't break out of the
+  // Content-Disposition header value (keys are GUIDs today, but be defensive).
+  const filename = (key.split("/").pop() ?? "download").replace(/["\r\n]/g, "");
   const command = new GetObjectCommand({
     Bucket: env.s3Bucket(),
     Key: key,

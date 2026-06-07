@@ -48,13 +48,22 @@ export async function verifySessionToken(
   }
 }
 
-/** Cookie options for the session cookie. `secure` is enabled in production. */
-export function sessionCookieOptions() {
+/** Shared cookie attributes. `secure` is enabled in production. */
+function baseSessionCookie() {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 24 * 7, // 7 days, matches SESSION_TTL
   };
+}
+
+/** Options for setting a fresh session cookie. */
+export function sessionCookieOptions() {
+  return { ...baseSessionCookie(), maxAge: 60 * 60 * 24 * 7 }; // 7 days, matches SESSION_TTL
+}
+
+/** Options that immediately expire the session cookie. */
+export function clearSessionCookieOptions() {
+  return { ...baseSessionCookie(), maxAge: 0 };
 }

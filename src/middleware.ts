@@ -76,12 +76,11 @@ export async function middleware(req: NextRequest) {
     );
   }
 
-  // 2) Per-request CSP nonce, threaded to the app via request headers.
+  // 2) Per-request CSP nonce, threaded to the app (layout) via a request header.
   const nonce = crypto.randomUUID().replace(/-/g, "");
   const csp = buildCsp(nonce);
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-nonce", nonce);
-  requestHeaders.set("content-security-policy", csp);
 
   const withCsp = (res: NextResponse) => {
     res.headers.set("Content-Security-Policy", csp);

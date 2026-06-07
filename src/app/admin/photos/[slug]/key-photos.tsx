@@ -119,8 +119,8 @@ export function KeyPhotos({ slug }: { slug: string }) {
         body: JSON.stringify({ keys }),
       });
       if (!res.ok) throw new Error("Could not prepare downloads");
-      const { urls } = await res.json();
-      await triggerDownloads(urls.map((u: { url: string }) => u.url));
+      const { urls } = (await res.json()) as { urls: { key: string; url: string }[] };
+      await triggerDownloads(urls.map((u) => u.url));
     } catch (e) {
       alert(e instanceof Error ? e.message : "Download failed");
     } finally {
@@ -135,21 +135,32 @@ export function KeyPhotos({ slug }: { slug: string }) {
     if (!confirm(`Permanently delete ${label} from storage?`)) return;
     setBusy(true);
     try {
-      await Promise.all(
-        keys.map((key) =>
-          apiFetch(`/api/admin/photos?key=${encodeURIComponent(key)}`, {
-            method: "DELETE",
-          }),
-        ),
+      // fetch() doesn't reject on HTTP errors, so check each response and only
+      // drop the keys that actually deleted — otherwise a failed delete would
+      // silently disappear from the list.
+      const results = await Promise.all(
+        keys.map(async (key) => {
+          const res = await apiFetch(
+            `/api/admin/photos?key=${encodeURIComponent(key)}`,
+            { method: "DELETE" },
+          );
+          return { key, ok: res.ok };
+        }),
       );
-      const removed = new Set(keys);
-      setItems((prev) => prev.filter((p) => !removed.has(p.key)));
-      setSelected((prev) => {
-        const next = new Set(prev);
-        keys.forEach((k) => next.delete(k));
-        return next;
-      });
-      if (closePreview) setPreview(null);
+      const deleted = new Set(results.filter((r) => r.ok).map((r) => r.key));
+      if (deleted.size > 0) {
+        setItems((prev) => prev.filter((p) => !deleted.has(p.key)));
+        setSelected((prev) => {
+          const next = new Set(prev);
+          deleted.forEach((k) => next.delete(k));
+          return next;
+        });
+        if (closePreview) setPreview(null);
+      }
+      const failed = keys.length - deleted.size;
+      if (failed > 0) {
+        alert(`Failed to delete ${failed} photo${failed === 1 ? "" : "s"}.`);
+      }
     } catch {
       alert("Delete failed");
     } finally {
@@ -158,24 +169,26 @@ export function KeyPhotos({ slug }: { slug: string }) {
   }
 
   // ---- preview thumbnails ----
+  // Keys whose thumbnail we've already requested, so each is fetched at most
+  // once (a ref, not state, keeps the dedupe out of the render/updater cycle).
+  const requestedThumbs = useRef<Set<string>>(new Set());
   const ensureThumb = useCallback((key: string) => {
-    setThumbs((prev) => {
-      if (prev[key]) return prev;
-      apiFetch(`/api/admin/photos/thumbnail?key=${encodeURIComponent(key)}`)
-        .then(async (r) => {
-          const d = await r.json().catch(() => ({}));
-          setThumbs((s) => ({
-            ...s,
-            [key]: r.ok
-              ? { status: "ready", url: d.url }
-              : { status: "error", error: d.error || "Preview failed" },
-          }));
-        })
-        .catch(() =>
-          setThumbs((s) => ({ ...s, [key]: { status: "error", error: "Preview failed" } })),
-        );
-      return { ...prev, [key]: { status: "loading" } };
-    });
+    if (requestedThumbs.current.has(key)) return;
+    requestedThumbs.current.add(key);
+    setThumbs((s) => ({ ...s, [key]: { status: "loading" } }));
+    apiFetch(`/api/admin/photos/thumbnail?key=${encodeURIComponent(key)}`)
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        setThumbs((s) => ({
+          ...s,
+          [key]: r.ok
+            ? { status: "ready", url: d.url }
+            : { status: "error", error: d.error || "Preview failed" },
+        }));
+      })
+      .catch(() =>
+        setThumbs((s) => ({ ...s, [key]: { status: "error", error: "Preview failed" } })),
+      );
   }, []);
 
   const openPreview = useCallback(

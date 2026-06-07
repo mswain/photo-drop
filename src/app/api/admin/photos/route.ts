@@ -4,22 +4,12 @@ import { folders } from "@/db/schema";
 import { requireSession } from "@/lib/session";
 import { photosQuerySchema } from "@/lib/validation";
 import { listObjects, deleteObject } from "@/lib/s3";
-import { slugFromKey, thumbnailKey } from "@/lib/ids";
+import { slugFromKey, thumbnailKey, isManagedKey } from "@/lib/ids";
 import { env } from "@/lib/env";
 import { handle, json, badRequest } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** A key is manageable if it lives under the configured root and is well-formed. */
-function isManagedKey(key: string, root: string): boolean {
-  return (
-    key.length > root.length &&
-    key.startsWith(root) &&
-    key.includes("/") &&
-    !key.includes("..")
-  );
-}
 
 // GET /api/admin/photos — paginated listing of uploaded objects from S3.
 // S3 paginates with continuation tokens, so the client pages via `cursor`.
@@ -75,7 +65,7 @@ export const DELETE = handle(async (req: NextRequest) => {
   await requireSession();
   const root = env.s3KeyPrefix();
   const key = new URL(req.url).searchParams.get("key");
-  if (!key || !isManagedKey(key, root)) {
+  if (!isManagedKey(key, root)) {
     return badRequest("A valid object key is required");
   }
   await deleteObject(key);

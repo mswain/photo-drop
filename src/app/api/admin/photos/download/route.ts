@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireSession } from "@/lib/session";
 import { presignDownload } from "@/lib/s3";
+import { isManagedKey } from "@/lib/ids";
 import { env } from "@/lib/env";
 import { handle, badRequest } from "@/lib/http";
 
@@ -17,7 +18,7 @@ export const GET = handle(async (req: NextRequest) => {
   await requireSession();
   const key = new URL(req.url).searchParams.get("key");
   const root = env.s3KeyPrefix();
-  if (!key || key.length <= root.length || !key.startsWith(root) || key.includes("..")) {
+  if (!isManagedKey(key, root)) {
     return badRequest("A valid object key is required");
   }
   const url = await presignDownload(key, { download: true });

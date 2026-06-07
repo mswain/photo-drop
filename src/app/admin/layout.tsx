@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { LogoutButton } from "./logout-button";
 import { ThemeToggle } from "../theme-toggle";
@@ -10,7 +11,11 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Middleware gates on a valid JWT, but can't hit the DB. Re-check here so a
+  // valid token for a since-deleted admin is sent back to login, not shown the
+  // shell. (APIs already 401 via requireSession.)
   const session = await getSession();
+  if (!session) redirect("/login");
 
   return (
     <div>
@@ -24,9 +29,7 @@ export default async function AdminLayout({
             <Link href="/admin/users">Admin users</Link>
           </div>
           <div className="nav-spacer" />
-          {session && (
-            <span className="muted small">{session.username}</span>
-          )}
+          <span className="muted small">{session.username}</span>
           <ThemeToggle />
           <LogoutButton />
         </div>
