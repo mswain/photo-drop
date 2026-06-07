@@ -20,6 +20,23 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+/** Small thumbnail shown to the left of a row's filename. The image bytes load
+ * straight from S3 via the presigned URL, so they never transit the app. */
+function ThumbBox({ state }: { state?: ThumbState }) {
+  if (state?.status === "ready" && state.url) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={state.url} alt="" loading="lazy" />;
+  }
+  if (state?.status === "error") {
+    return (
+      <span className="thumb-fallback" aria-hidden="true">
+        ⚠
+      </span>
+    );
+  }
+  return <span className="spinner" aria-hidden="true" />;
+}
+
 /** Downloads a list of presigned S3 URLs by clicking hidden anchors. */
 async function triggerDownloads(urls: string[]) {
   for (const url of urls) {
@@ -172,11 +189,11 @@ export function KeyPhotos({ slug }: { slug: string }) {
   // Keys whose thumbnail we've already requested, so each is fetched at most
   // once (a ref, not state, keeps the dedupe out of the render/updater cycle).
   const requestedThumbs = useRef<Set<string>>(new Set());
-  const ensureThumb = useCallback((key: string) => {
-    if (requestedThumbs.current.has(key)) return;
+  const ensureThumb = useCallback((key: string): Promise<void> => {
+    if (requestedThumbs.current.has(key)) return Promise.resolve();
     requestedThumbs.current.add(key);
     setThumbs((s) => ({ ...s, [key]: { status: "loading" } }));
-    apiFetch(`/api/admin/photos/thumbnail?key=${encodeURIComponent(key)}`)
+    return apiFetch(`/api/admin/photos/thumbnail?key=${encodeURIComponent(key)}`)
       .then(async (r) => {
         const d = await r.json().catch(() => ({}));
         setThumbs((s) => ({
@@ -190,6 +207,35 @@ export function KeyPhotos({ slug }: { slug: string }) {
         setThumbs((s) => ({ ...s, [key]: { status: "error", error: "Preview failed" } })),
       );
   }, []);
+
+  // Eagerly generate/fetch a thumbnail for every row on the current page, in the
+  // background and capped at a few in flight so a 100-photo page doesn't fire 100
+  // generation requests at once. ensureThumb dedupes, so keys already loaded (by
+  // the preview, or a revisited page) are skipped. The endpoint hands back a
+  // presigned S3 URL, so only the small JSON handshake touches the app — the
+  // actual thumbnail bytes load directly from S3.
+  useEffect(() => {
+    if (items.length === 0) return;
+    let cancelled = false;
+    const queue = items.map((i) => i.key);
+    const CONCURRENCY = 4;
+
+    async function worker() {
+      while (!cancelled) {
+        const key = queue.shift();
+        if (!key) return;
+        await ensureThumb(key);
+      }
+    }
+
+    void Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker),
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items, ensureThumb]);
 
   const openPreview = useCallback(
     (index: number) => {
@@ -286,9 +332,19 @@ export function KeyPhotos({ slug }: { slug: string }) {
                       />
                     </td>
                     <td>
-                      <button className="link-cell mono" onClick={() => openPreview(idx)}>
-                        {item.filename}
-                      </button>
+                      <div className="thumb-cell">
+                        <button
+                          type="button"
+                          className="thumb-box"
+                          onClick={() => openPreview(idx)}
+                          aria-label={`Preview ${item.filename}`}
+                        >
+                          <ThumbBox state={thumbs[item.key]} />
+                        </button>
+                        <button className="link-cell mono" onClick={() => openPreview(idx)}>
+                          {item.filename}
+                        </button>
+                      </div>
                     </td>
                     <td className="muted">{formatBytes(item.size)}</td>
                     <td className="muted">

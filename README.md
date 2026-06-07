@@ -253,3 +253,19 @@ src/
       upload/[token]/                presign (public, direct-to-S3)
 scripts/create-admin.ts    create/update an admin (CLI; also doable in the UI)
 ```
+
+## License
+
+Photo Drop is free software, licensed under the **GNU Affero General Public
+License v3.0 or later** (`AGPL-3.0-or-later`). See [LICENSE](./LICENSE) for the
+full text.
+
+Copyright © 2026 Matthew Swain
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.
+
+Note the AGPL's **§13 network clause**: if you run a modified version of Photo
+Drop as a network service, you must offer its users a way to obtain the
+Corresponding Source of your modified version.

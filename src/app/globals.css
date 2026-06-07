@@ -465,6 +465,41 @@ table.table tbody tr:last-child td {
 .link-cell:hover {
   text-decoration: underline;
 }
+/* ---- Row thumbnail ---- */
+.thumb-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.thumb-box {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  overflow: hidden;
+  cursor: pointer;
+}
+.thumb-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.thumb-box .spinner {
+  width: 14px;
+  height: 14px;
+}
+.thumb-fallback {
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--muted);
+}
 .pager {
   margin-top: 1.1rem;
 }
