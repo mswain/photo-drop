@@ -1,0 +1,36 @@
+# Local DEV infrastructure only — the app itself runs on the host via `pnpm dev`
+# (see the Makefile). MiniStack (https://ministack.org) emulates S3; a plain
+# Postgres container is the database. For the full app-in-Docker stack instead,
+# use docker-compose.yml.
+name: photo-dump-dev
+
+services:
+  # S3 (and friends) emulator. S3 lives at http://localhost:4566 with the
+  # default test/test credentials and path-style addressing.
+  ministack:
+    image: ministackorg/ministack
+    container_name: pd-dev-ministack
+    ports:
+      - "4566:4566"
+    restart: unless-stopped
+
+  # Dev database. Exposed on 5433 to avoid clashing with a host Postgres on 5432.
+  db:
+    image: postgres:16-alpine
+    container_name: pd-dev-db
+    environment:
+      POSTGRES_USER: photo
+      POSTGRES_PASSWORD: photo
+      POSTGRES_DB: photodump
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U photo -d photodump"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
