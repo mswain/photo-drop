@@ -935,15 +935,80 @@ table.table tbody tr:last-child td {
     display: none;
   }
 
-  /* Smaller row thumbnails keep the photos table from getting very tall/wide. */
-  .thumb-box {
-    width: 64px;
-    height: 64px;
-  }
-
   table.table th,
   table.table td {
     padding: 0.5rem 0.45rem;
+  }
+
+  /* Photos table → stacked list cards. The desktop table is too wide for a
+     phone (long GUID filename + per-row Preview/Delete force horizontal
+     scroll), so on mobile we hide the header and let each row stack: thumbnail
+     + truncated filename on top, size · date as a meta line, Delete below. The
+     Preview button is dropped — tapping the thumbnail or filename previews. */
+  .thumb-box {
+    width: 56px;
+    height: 56px;
+  }
+  .table-cards,
+  .table-cards tbody,
+  .table-cards tr,
+  .table-cards td {
+    display: block;
+    width: auto;
+  }
+  .table-cards thead {
+    display: none;
+  }
+  .table-cards tr {
+    position: relative;
+    padding: 0.8rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .table-cards tbody tr:hover {
+    background: transparent;
+  }
+  .table-cards tbody tr:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .table-cards td {
+    border-bottom: none;
+    padding: 0;
+    white-space: normal;
+  }
+  /* Select checkbox tucked into the card's top-right corner. */
+  .table-cards td.col-check {
+    position: absolute;
+    top: 0.85rem;
+    right: 0;
+    width: auto;
+    padding: 0 !important;
+  }
+  /* Thumbnail + filename on the first line; truncate the long GUID name so it
+     never forces the row wider than the screen. */
+  .table-cards .thumb-cell {
+    min-width: 0;
+    padding-right: 1.75rem; /* clear the corner checkbox */
+  }
+  .table-cards .thumb-cell .link-cell {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
+  /* Size · uploaded as one small meta line. */
+  .table-cards td.muted {
+    display: inline-block;
+    margin: 0.5rem 0.7rem 0 0;
+    font-size: 0.8rem;
+  }
+  .preview-btn {
+    display: none;
+  }
+  .table-cards td.col-actions {
+    margin-top: 0.55rem;
   }
 
   /* Floating selection bar: span most of the width and tighten so its actions

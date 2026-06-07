@@ -302,7 +302,7 @@ export function KeyPhotos({ slug }: { slug: string }) {
           </p>
         ) : (
           <div className="table-wrap">
-            <table className="table">
+            <table className="table table-cards">
               <thead>
                 <tr>
                   <th className="col-check">
@@ -354,7 +354,7 @@ export function KeyPhotos({ slug }: { slug: string }) {
                     </td>
                     <td className="col-actions">
                       <div className="row" style={{ justifyContent: "flex-end" }}>
-                        <button className="btn btn-sm" onClick={() => openPreview(idx)}>
+                        <button className="btn btn-sm preview-btn" onClick={() => openPreview(idx)}>
                           Preview
                         </button>
                         <button
