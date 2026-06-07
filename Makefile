@@ -1,16 +1,16 @@
-# Photo Dump — local dev stack.
+# Photo Drop — local dev stack.
 #
 # Infra (MiniStack S3 + Postgres) runs in Docker; the app runs on the HOST via
 # `pnpm dev`. The variables below are exported into every recipe and take
 # precedence over .env, so `make dev` is self-contained. Override any of them on
 # the command line, e.g.  `make dev S3_BUCKET=other`.
 
-export DATABASE_URL          ?= postgres://photo:photo@localhost:5433/photodump
+export DATABASE_URL          ?= postgres://photo:photo@localhost:5433/photodrop
 export SESSION_SECRET        ?= dev-session-secret-change-me
 export AWS_ACCESS_KEY_ID     ?= test
 export AWS_SECRET_ACCESS_KEY ?= test
 export AWS_REGION            ?= us-east-1
-export S3_BUCKET             ?= photo-dump
+export S3_BUCKET             ?= photo-drop
 export S3_ENDPOINT           ?= http://localhost:4566
 export S3_FORCE_PATH_STYLE   ?= true
 
@@ -35,7 +35,7 @@ dev: up bucket migrate seed ## Start the full dev stack and run the app (Ctrl-C 
 up: ## Start MiniStack + Postgres and wait until they're ready
 	$(COMPOSE) up -d
 	@printf "Waiting for Postgres "; \
-		i=0; until $(COMPOSE) exec -T db pg_isready -U photo -d photodump >/dev/null 2>&1; do \
+		i=0; until $(COMPOSE) exec -T db pg_isready -U photo -d photodrop >/dev/null 2>&1; do \
 			i=$$((i+1)); [ $$i -gt 60 ] && { echo " timed out"; exit 1; }; printf "."; sleep 1; done; \
 		echo " ready"
 	@printf "Waiting for MiniStack S3 "; \

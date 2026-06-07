@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Photo Dump",
+  title: "Photo Drop",
   description: "Simple, direct-to-S3 photo uploads.",
 };
 

@@ -6,5 +6,5 @@ set -e
 echo "Running database migrations…"
 node /app/dist/migrate.cjs
 
-echo "Starting Photo Dump on ${HOSTNAME:-0.0.0.0}:${PORT:-3000}…"
+echo "Starting Photo Drop on ${HOSTNAME:-0.0.0.0}:${PORT:-3000}…"
 exec node /app/server.js

@@ -1,4 +1,4 @@
-# Local/self-hosted stack: Postgres + the Photo Dump app.
+# Local/self-hosted stack: Postgres + the Photo Drop app.
 # For real deployments, point DATABASE_URL at a managed Postgres and supply
 # real AWS credentials + bucket.
 services:
@@ -8,13 +8,13 @@ services:
     environment:
       POSTGRES_USER: photo
       POSTGRES_PASSWORD: photo
-      POSTGRES_DB: photodump
+      POSTGRES_DB: photodrop
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U photo -d photodump"]
+      test: ["CMD-SHELL", "pg_isready -U photo -d photodrop"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -29,7 +29,7 @@ services:
       - "3000:3000"
     environment:
       # Inside the compose network the DB host is "db".
-      DATABASE_URL: postgres://photo:photo@db:5432/photodump
+      DATABASE_URL: postgres://photo:photo@db:5432/photodrop
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in your .env}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?set AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?set AWS_SECRET_ACCESS_KEY}

@@ -11,7 +11,7 @@ type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
-  return { title: `${slug} · Photos · Photo Dump` };
+  return { title: `${slug} · Photos · Photo Drop` };
 }
 
 export default async function FolderPage({ params }: Props) {

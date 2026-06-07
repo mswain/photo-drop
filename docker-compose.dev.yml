@@ -2,7 +2,7 @@
 # (see the Makefile). MiniStack (https://ministack.org) emulates S3; a plain
 # Postgres container is the database. For the full app-in-Docker stack instead,
 # use docker-compose.yml.
-name: photo-dump-dev
+name: photo-drop-dev
 
 services:
   # S3 (and friends) emulator. S3 lives at http://localhost:4566 with the
@@ -21,13 +21,13 @@ services:
     environment:
       POSTGRES_USER: photo
       POSTGRES_PASSWORD: photo
-      POSTGRES_DB: photodump
+      POSTGRES_DB: photodrop
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U photo -d photodump"]
+      test: ["CMD-SHELL", "pg_isready -U photo -d photodrop"]
       interval: 3s
       timeout: 3s
       retries: 20

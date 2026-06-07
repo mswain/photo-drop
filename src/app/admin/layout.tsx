@@ -17,7 +17,7 @@ export default async function AdminLayout({
       <nav className="nav">
         <div className="nav-inner">
           <Link href="/admin/photos" className="nav-brand">
-            Photo Dump
+            Photo Drop
           </Link>
           <div className="nav-links">
             <Link href="/admin/photos">Photos</Link>

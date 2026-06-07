@@ -1,4 +1,4 @@
-# Photo Dump
+# Photo Drop
 
 A dead-simple photo **upload** app — not a gallery. Admins create photo
 **folders** and share no-login upload **links**; anyone with a link can
@@ -152,17 +152,17 @@ The image runs migrations on startup, then serves the app.
 
 ```bash
 # Build
-docker build -t photo-dump .
+docker build -t photo-drop .
 
 # Run (point DATABASE_URL at a reachable Postgres)
 docker run --rm -p 3000:3000 \
-  -e DATABASE_URL=postgres://user:pass@host:5432/photodump \
+  -e DATABASE_URL=postgres://user:pass@host:5432/photodrop \
   -e SESSION_SECRET="$(openssl rand -base64 48)" \
   -e AWS_ACCESS_KEY_ID=... \
   -e AWS_SECRET_ACCESS_KEY=... \
   -e AWS_REGION=us-east-1 \
-  -e S3_BUCKET=my-photo-dump-bucket \
-  photo-dump
+  -e S3_BUCKET=my-photo-drop-bucket \
+  photo-drop
 ```
 
 Create the first admin against the same database (one-off):
