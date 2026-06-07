@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { folders } from "@/db/schema";
 import { KeyPhotos } from "./key-photos";
 import { FolderView } from "./folder-view";
+import { DeleteFolderButton } from "./delete-folder-button";
 
 export const dynamic = "force-dynamic";
 
@@ -28,9 +29,12 @@ export default async function FolderPage({ params }: Props) {
       <div className="small breadcrumb">
         <Link href="/admin/photos">← All folders</Link>
       </div>
-      <div className="page-head">
-        <h1>{folder?.label ?? slug}</h1>
-        <span className="muted mono small">{slug}/</span>
+      <div className="row-between page-head">
+        <div>
+          <h1>{folder?.label ?? slug}</h1>
+          <span className="muted mono small">{slug}/</span>
+        </div>
+        <DeleteFolderButton slug={slug} confirmName={folder?.label ?? slug} />
       </div>
 
       {folder ? (

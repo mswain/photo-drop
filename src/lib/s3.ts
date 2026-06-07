@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  CopyObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
   type _Object,
@@ -77,6 +78,53 @@ export async function deleteObject(key: string): Promise<void> {
   await s3().send(
     new DeleteObjectCommand({ Bucket: env.s3Bucket(), Key: key }),
   );
+}
+
+/**
+ * Moves every object under `sourcePrefix` to `destPrefix` (copy-then-delete,
+ * since S3 has no native rename), preserving the relative key path. Used to
+ * "soft delete" a folder by relocating its objects under a sentinel prefix:
+ * the bytes are preserved and recoverable, but nothing is listed at the old
+ * location. Returns the number of objects moved.
+ *
+ * `destPrefix` must not be nested under `sourcePrefix`, or freshly-copied
+ * objects would be re-listed and moved again.
+ */
+export async function movePrefix(
+  sourcePrefix: string,
+  destPrefix: string,
+): Promise<number> {
+  const bucket = env.s3Bucket();
+  let moved = 0;
+  let cursor: string | undefined;
+  do {
+    const res = await s3().send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: sourcePrefix,
+        MaxKeys: 1000,
+        ContinuationToken: cursor,
+      }),
+    );
+    for (const obj of res.Contents ?? []) {
+      const key = obj.Key;
+      if (!key) continue;
+      const destKey = destPrefix + key.slice(sourcePrefix.length);
+      await s3().send(
+        new CopyObjectCommand({
+          Bucket: bucket,
+          // CopySource is "<bucket>/<key>"; encodeURI keeps "/" but escapes
+          // spaces and other characters the SDK requires to be URI-encoded.
+          CopySource: encodeURI(`${bucket}/${key}`),
+          Key: destKey,
+        }),
+      );
+      await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+      moved++;
+    }
+    cursor = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (cursor);
+  return moved;
 }
 
 /** True if an object exists at the given key. */
