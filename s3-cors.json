@@ -4,7 +4,7 @@
       "AllowedOrigins": ["https://YOUR-APP-DOMAIN"],
       "AllowedMethods": ["GET", "PUT", "HEAD"],
       "AllowedHeaders": ["*"],
-      "ExposeHeaders": ["ETag"],
+      "ExposeHeaders": ["ETag", "Content-Range", "Accept-Ranges", "Content-Length"],
       "MaxAgeSeconds": 3000
     }
   ]

@@ -40,10 +40,31 @@ export const env = {
     return raw.replace(/^\/+/, "").replace(/\/*$/, "/");
   },
 
-  // Upload policy
+  // Upload policy. Images and videos have separate per-file size caps, since
+  // videos are typically much larger. See `maxUploadBytesFor`.
   maxUploadBytes: () => intEnv("MAX_UPLOAD_BYTES", 50 * 1024 * 1024),
-  allowedContentTypePrefix: () =>
-    process.env.ALLOWED_CONTENT_TYPE_PREFIX ?? "image/",
+  maxVideoUploadBytes: () =>
+    intEnv("MAX_VIDEO_UPLOAD_BYTES", 2 * 1024 * 1024 * 1024),
+
+  /** Per-file byte cap for a given content-type (videos get the larger cap). */
+  maxUploadBytesFor: (contentType: string): number =>
+    contentType.toLowerCase().startsWith("video/")
+      ? env.maxVideoUploadBytes()
+      : env.maxUploadBytes(),
+
+  /**
+   * Content-type prefixes an upload is allowed to match. Comma-separated in the
+   * environment (e.g. "image/,video/"); each entry is trimmed, lowercased, and
+   * the empties dropped. Default allows both images and videos.
+   */
+  allowedContentTypePrefixes: (): string[] => {
+    const raw = process.env.ALLOWED_CONTENT_TYPE_PREFIX ?? "image/,video/";
+    const list = raw
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    return list.length ? list : ["image/", "video/"];
+  },
   presignExpirySeconds: () => intEnv("PRESIGN_EXPIRY_SECONDS", 900),
 
   // Largest batch of files accepted by a single presign request.

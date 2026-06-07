@@ -4,7 +4,7 @@ import { folders } from "@/db/schema";
 import { requireSession } from "@/lib/session";
 import { photosQuerySchema } from "@/lib/validation";
 import { listObjects, deleteObject } from "@/lib/s3";
-import { slugFromKey, thumbnailKey, isManagedKey } from "@/lib/ids";
+import { slugFromKey, thumbnailKey, isManagedKey, isVideoKey } from "@/lib/ids";
 import { env } from "@/lib/env";
 import { handle, json, badRequest } from "@/lib/http";
 
@@ -45,6 +45,7 @@ export const GET = handle(async (req: NextRequest) => {
       filename: o.key.split("/").pop() ?? o.key,
       size: o.size,
       lastModified: o.lastModified,
+      isVideo: isVideoKey(o.key),
       linkSlug,
       linkLabel: linkSlug ? labelBySlug.get(linkSlug) ?? null : null,
       downloadUrl: `/api/admin/photos/download?key=${encodeURIComponent(o.key)}`,

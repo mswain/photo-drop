@@ -16,7 +16,65 @@ const CONTENT_TYPE_EXT: Record<string, string> = {
   "image/heif": "heif",
   "image/tiff": "tiff",
   "image/bmp": "bmp",
+  // Video
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+  "video/ogg": "ogv",
+  "video/x-m4v": "m4v",
+  "video/x-msvideo": "avi",
+  "video/x-matroska": "mkv",
+  "video/3gpp": "3gp",
+  "video/mpeg": "mpeg",
 };
+
+/**
+ * File extension -> content-type to FORCE when serving a video back for inline
+ * playback. We never trust the stored content-type (the PUT content-type is
+ * unsigned, so it's attacker-controllable); forcing it from the GUID key's
+ * extension means a malicious "video" can only ever be served as a video, not
+ * rendered as script. A key whose extension isn't here is not a video.
+ *
+ * These are tuned for the HTML <video> element, which is stricter than the
+ * browser's standalone media viewer: it refuses to play a source whose MIME
+ * type it doesn't whitelist, even when it could decode the bytes. The big one
+ * is QuickTime — Chrome/Firefox reject "video/quicktime" outright, but most
+ * .mov / .m4v files from phones are H.264/AAC in an MP4-family container and
+ * play fine when labeled "video/mp4". So we relabel those to the web-friendly
+ * type rather than their pedantically-correct one.
+ */
+const VIDEO_EXT_CONTENT_TYPE: Record<string, string> = {
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  mov: "video/mp4",
+  webm: "video/webm",
+  ogv: "video/ogg",
+  avi: "video/x-msvideo",
+  mkv: "video/x-matroska",
+  "3gp": "video/3gpp",
+  mpeg: "video/mpeg",
+  mpg: "video/mpeg",
+};
+
+/** Lowercased file extension of a key (no dot), or "". */
+function extOf(key: string): string {
+  const name = key.split("/").pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+/** True if the object key names a video (by its extension). */
+export function isVideoKey(key: string): boolean {
+  return extOf(key) in VIDEO_EXT_CONTENT_TYPE;
+}
+
+/**
+ * The content-type to force when serving a video key inline, derived solely
+ * from its extension. Returns null for non-video keys.
+ */
+export function videoContentType(key: string): string | null {
+  return VIDEO_EXT_CONTENT_TYPE[extOf(key)] ?? null;
+}
 
 /** A short, URL-safe, unguessable token for public share links. */
 export function newLinkToken(): string {

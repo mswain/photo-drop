@@ -8,6 +8,7 @@ interface PhotoItem {
   filename: string;
   size: number;
   lastModified: string | null;
+  isVideo: boolean;
   downloadUrl: string;
 }
 
@@ -21,8 +22,16 @@ function formatBytes(bytes: number): string {
 }
 
 /** Small thumbnail shown to the left of a row's filename. The image bytes load
- * straight from S3 via the presigned URL, so they never transit the app. */
-function ThumbBox({ state }: { state?: ThumbState }) {
+ * straight from S3 via the presigned URL, so they never transit the app.
+ * Videos aren't image-thumbnailable, so they get a play-glyph placeholder. */
+function ThumbBox({ state, isVideo }: { state?: ThumbState; isVideo?: boolean }) {
+  if (isVideo) {
+    return (
+      <span className="thumb-video" aria-hidden="true">
+        ▶
+      </span>
+    );
+  }
   if (state?.status === "ready" && state.url) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={state.url} alt="" loading="lazy" />;
@@ -68,6 +77,8 @@ export function KeyPhotos({ slug }: { slug: string }) {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<number | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, ThumbState>>({});
+  // Inline playback URLs for video items, fetched lazily when previewed.
+  const [videoUrls, setVideoUrls] = useState<Record<string, ThumbState>>({});
 
   const selectAllRef = useRef<HTMLInputElement>(null);
 
@@ -208,6 +219,32 @@ export function KeyPhotos({ slug }: { slug: string }) {
       );
   }, []);
 
+  // Lazily fetch a presigned inline playback URL for a video, at most once per
+  // key. The video bytes stream directly from S3; only the JSON handshake
+  // touches the app.
+  const requestedVideos = useRef<Set<string>>(new Set());
+  const ensureVideoUrl = useCallback((key: string): Promise<void> => {
+    if (requestedVideos.current.has(key)) return Promise.resolve();
+    requestedVideos.current.add(key);
+    setVideoUrls((s) => ({ ...s, [key]: { status: "loading" } }));
+    return apiFetch(`/api/admin/photos/play?key=${encodeURIComponent(key)}`)
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        setVideoUrls((s) => ({
+          ...s,
+          [key]: r.ok
+            ? { status: "ready", url: d.url }
+            : { status: "error", error: d.error || "Could not load video" },
+        }));
+      })
+      .catch(() =>
+        setVideoUrls((s) => ({
+          ...s,
+          [key]: { status: "error", error: "Could not load video" },
+        })),
+      );
+  }, []);
+
   // Eagerly generate/fetch a thumbnail for every row on the current page, in the
   // background and capped at a few in flight so a 100-photo page doesn't fire 100
   // generation requests at once. ensureThumb dedupes, so keys already loaded (by
@@ -217,7 +254,8 @@ export function KeyPhotos({ slug }: { slug: string }) {
   useEffect(() => {
     if (items.length === 0) return;
     let cancelled = false;
-    const queue = items.map((i) => i.key);
+    // Videos aren't image-thumbnailable — they get a placeholder, not a fetch.
+    const queue = items.filter((i) => !i.isVideo).map((i) => i.key);
     const CONCURRENCY = 4;
 
     async function worker() {
@@ -237,13 +275,21 @@ export function KeyPhotos({ slug }: { slug: string }) {
     };
   }, [items, ensureThumb]);
 
+  const ensurePreview = useCallback(
+    (item: PhotoItem) => {
+      if (item.isVideo) ensureVideoUrl(item.key);
+      else ensureThumb(item.key);
+    },
+    [ensureThumb, ensureVideoUrl],
+  );
+
   const openPreview = useCallback(
     (index: number) => {
       setPreview(index);
       const item = items[index];
-      if (item) ensureThumb(item.key);
+      if (item) ensurePreview(item);
     },
-    [items, ensureThumb],
+    [items, ensurePreview],
   );
 
   const navigate = useCallback(
@@ -252,11 +298,11 @@ export function KeyPhotos({ slug }: { slug: string }) {
         if (cur == null) return cur;
         const next = cur + delta;
         if (next < 0 || next >= items.length) return cur;
-        ensureThumb(items[next].key);
+        ensurePreview(items[next]);
         return next;
       });
     },
-    [items, ensureThumb],
+    [items, ensurePreview],
   );
 
   useEffect(() => {
@@ -279,6 +325,7 @@ export function KeyPhotos({ slug }: { slug: string }) {
   const page = history.length + 1;
   const current = preview != null ? items[preview] : null;
   const currentThumb = current ? thumbs[current.key] : undefined;
+  const currentVideo = current ? videoUrls[current.key] : undefined;
   const selectedKeys = [...selected];
 
   return (
@@ -339,7 +386,7 @@ export function KeyPhotos({ slug }: { slug: string }) {
                           onClick={() => openPreview(idx)}
                           aria-label={`Preview ${item.filename}`}
                         >
-                          <ThumbBox state={thumbs[item.key]} />
+                          <ThumbBox state={thumbs[item.key]} isVideo={item.isVideo} />
                         </button>
                         <button className="link-cell mono" onClick={() => openPreview(idx)}>
                           {item.filename}
@@ -425,7 +472,23 @@ export function KeyPhotos({ slug }: { slug: string }) {
             </div>
 
             <div className="modal-image">
-              {!currentThumb || currentThumb.status === "loading" ? (
+              {current.isVideo ? (
+                !currentVideo || currentVideo.status === "loading" ? (
+                  <div className="muted spinner-wrap">
+                    <span className="spinner" /> Loading video…
+                  </div>
+                ) : currentVideo.status === "error" ? (
+                  <div className="muted" style={{ textAlign: "center" }}>
+                    {currentVideo.error}
+                    <br />
+                    <a className="btn btn-sm" href={current.downloadUrl} style={{ marginTop: "0.5rem" }}>
+                      Download original
+                    </a>
+                  </div>
+                ) : (
+                  <video src={currentVideo.url} controls playsInline preload="metadata" />
+                )
+              ) : !currentThumb || currentThumb.status === "loading" ? (
                 <div className="muted spinner-wrap">
                   <span className="spinner" /> Generating preview…
                 </div>

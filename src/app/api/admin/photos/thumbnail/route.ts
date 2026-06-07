@@ -6,7 +6,7 @@ import {
   putObject,
   presignDownload,
 } from "@/lib/s3";
-import { thumbnailKey, isThumbnailKey, isManagedKey } from "@/lib/ids";
+import { thumbnailKey, isThumbnailKey, isManagedKey, isVideoKey } from "@/lib/ids";
 import { generateThumbnail, UnsupportedImageError } from "@/lib/thumbnail";
 import { env } from "@/lib/env";
 import { handle, json, badRequest } from "@/lib/http";
@@ -27,6 +27,15 @@ export const GET = handle(async (req: NextRequest) => {
 
   if (!isManagedKey(key, root) || isThumbnailKey(key, root)) {
     return badRequest("A valid image key is required");
+  }
+
+  // Videos aren't image-thumbnailable (and could be large); the client shows a
+  // placeholder for these and plays them via /api/admin/photos/play instead.
+  if (isVideoKey(key)) {
+    return json(
+      { error: "Preview not available for videos." },
+      { status: 422 },
+    );
   }
 
   const thumbKey = thumbnailKey(key, root);

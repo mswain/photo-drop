@@ -54,10 +54,18 @@ export async function presignUpload(
   });
 }
 
-/** Presigned GET URL for downloading an object (optionally forcing download). */
+/**
+ * Presigned GET URL for an object.
+ *
+ * `download` forces an attachment disposition. `contentType`, when given,
+ * overrides the stored content-type on the response — used for inline video
+ * playback, where we force a known-safe `video/*` type derived from the key's
+ * extension (the stored content-type is attacker-controllable, since the PUT
+ * content-type isn't signed).
+ */
 export async function presignDownload(
   key: string,
-  opts: { download?: boolean } = {},
+  opts: { download?: boolean; contentType?: string } = {},
 ): Promise<string> {
   // Strip quotes/control chars so the filename can't break out of the
   // Content-Disposition header value (keys are GUIDs today, but be defensive).
@@ -68,6 +76,7 @@ export async function presignDownload(
     ResponseContentDisposition: opts.download
       ? `attachment; filename="${filename}"`
       : undefined,
+    ResponseContentType: opts.contentType,
   });
   return getSignedUrl(s3(), command, {
     expiresIn: env.presignExpirySeconds(),

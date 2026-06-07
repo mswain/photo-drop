@@ -32,6 +32,11 @@ function buildCsp(nonce: string): string {
     scriptSrc,
     `style-src 'self' 'unsafe-inline'`,
     `img-src 'self' data: blob: https:${extra}`,
+    // Videos are played inline in a <video> element straight from S3. Without
+    // its own directive, media falls back to default-src ('self') and the
+    // cross-origin S3 load is blocked ("Media load rejected by URL safety
+    // check"), so mirror img-src here.
+    `media-src 'self' data: blob: https:${extra}`,
     `font-src 'self'`,
     `connect-src 'self' https:${extra}${prod ? "" : " ws: wss:"}`,
     `object-src 'none'`,

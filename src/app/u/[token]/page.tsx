@@ -45,8 +45,9 @@ export default async function UploadPage({ params }: Props) {
       <Uploader
         token={token}
         label={link.label}
-        maxBytes={env.maxUploadBytes()}
-        acceptPrefix={env.allowedContentTypePrefix()}
+        maxImageBytes={env.maxUploadBytes()}
+        maxVideoBytes={env.maxVideoUploadBytes()}
+        acceptPrefixes={env.allowedContentTypePrefixes()}
       />
     );
   }

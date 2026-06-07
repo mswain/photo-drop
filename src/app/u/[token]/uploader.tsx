@@ -45,23 +45,54 @@ function putToS3(
   });
 }
 
+/** Human label for the kinds of files an upload link accepts. */
+function mediaNoun(prefixes: string[]): { plural: string; singular: string } {
+  const images = prefixes.some((p) => p.startsWith("image/"));
+  const videos = prefixes.some((p) => p.startsWith("video/"));
+  if (images && videos)
+    return { plural: "photos & videos", singular: "photo or video" };
+  if (videos) return { plural: "videos", singular: "video" };
+  return { plural: "photos", singular: "photo" };
+}
+
+/** A whole-number size cap label, e.g. "50 MB" or "2 GB". */
+function formatCap(bytes: number): string {
+  const gb = bytes / 1024 ** 3;
+  if (gb >= 1) return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
+  return `${Math.floor(bytes / (1024 * 1024))} MB`;
+}
+
 export function Uploader({
   token,
   label,
-  maxBytes,
-  acceptPrefix,
+  maxImageBytes,
+  maxVideoBytes,
+  acceptPrefixes,
 }: {
   token: string;
   label: string | null;
-  maxBytes: number;
-  acceptPrefix: string;
+  maxImageBytes: number;
+  maxVideoBytes: number;
+  acceptPrefixes: string[];
 }) {
   const [items, setItems] = useState<FileItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const maxMb = Math.floor(maxBytes / (1024 * 1024));
+  const noun = mediaNoun(acceptPrefixes);
+  const acceptAttr = acceptPrefixes.map((p) => `${p}*`).join(",");
+  const allowsImages = acceptPrefixes.some((p) => p.startsWith("image/"));
+  const allowsVideos = acceptPrefixes.some((p) => p.startsWith("video/"));
+  const sizeHint =
+    allowsImages && allowsVideos
+      ? `up to ${formatCap(maxImageBytes)} per photo · ${formatCap(maxVideoBytes)} per video`
+      : `up to ${formatCap(allowsVideos ? maxVideoBytes : maxImageBytes)} each`;
+
+  /** Per-file byte cap (videos get the larger limit). */
+  function capFor(type: string): number {
+    return type.toLowerCase().startsWith("video/") ? maxVideoBytes : maxImageBytes;
+  }
 
   function update(id: string, patch: Partial<FileItem>) {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
@@ -72,17 +103,19 @@ export function Uploader({
     setTopError(null);
     const added: FileItem[] = [];
     for (const file of Array.from(fileList)) {
-      const tooBig = file.size > maxBytes;
-      const wrongType = !file.type.toLowerCase().startsWith(acceptPrefix);
+      const type = file.type.toLowerCase();
+      const cap = capFor(type);
+      const tooBig = file.size > cap;
+      const wrongType = !acceptPrefixes.some((p) => type.startsWith(p));
       added.push({
         id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
         file,
         status: tooBig || wrongType ? "error" : "queued",
         progress: 0,
         error: tooBig
-          ? `Larger than ${maxMb} MB`
+          ? `Larger than ${formatCap(cap)}`
           : wrongType
-            ? "Not an image"
+            ? `Not a ${noun.singular}`
             : undefined,
       });
     }
@@ -164,7 +197,7 @@ export function Uploader({
   return (
     <div className="upload-shell">
       <div className="container-narrow" style={{ width: "100%" }}>
-        <h1 style={{ textAlign: "center" }}>Upload photos</h1>
+        <h1 style={{ textAlign: "center" }}>Upload {noun.plural}</h1>
         {label && (
           <p className="muted" style={{ textAlign: "center", marginTop: 0 }}>
             {label}
@@ -175,7 +208,7 @@ export function Uploader({
 
         {allDone && doneCount > 0 && (
           <div className="alert alert-success">
-            {doneCount} photo{doneCount === 1 ? "" : "s"} uploaded. Thank you!
+            {doneCount} file{doneCount === 1 ? "" : "s"} uploaded. Thank you!
           </div>
         )}
 
@@ -188,7 +221,7 @@ export function Uploader({
           <input
             ref={inputRef}
             type="file"
-            accept={`${acceptPrefix}*`}
+            accept={acceptAttr}
             multiple
             hidden
             onChange={(e) => addFiles(e.target.files)}
@@ -201,10 +234,10 @@ export function Uploader({
             </svg>
           </div>
           <p style={{ margin: 0, fontWeight: 620, fontSize: "1.02rem" }}>
-            Tap to choose photos
+            Tap to choose {noun.plural}
           </p>
           <p className="muted small" style={{ margin: "0.35rem 0 0" }}>
-            You can select multiple at once · up to {maxMb} MB each
+            You can select multiple at once · {sizeHint}
           </p>
         </div>
 
@@ -247,7 +280,7 @@ export function Uploader({
                 {uploading
                   ? "Uploading…"
                   : queuedCount > 0
-                    ? `Upload ${queuedCount} photo${queuedCount === 1 ? "" : "s"}`
+                    ? `Upload ${queuedCount} file${queuedCount === 1 ? "" : "s"}`
                     : "Nothing to upload"}
               </button>
               {doneCount > 0 && !uploading && (

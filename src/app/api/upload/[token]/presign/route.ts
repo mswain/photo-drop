@@ -55,21 +55,23 @@ export const POST = handle(async (req: NextRequest, ctx: Ctx) => {
   }
   const { files } = parsed.data;
 
-  // Per-file policy: images only (but not SVG, which can carry script), under
-  // the size limit.
-  const contentPrefix = env.allowedContentTypePrefix();
-  const maxBytes = env.maxUploadBytes();
+  // Per-file policy: allowed media types only (but not SVG, which can carry
+  // script), under the per-type size limit (videos get a larger cap).
+  const contentPrefixes = env.allowedContentTypePrefixes();
   for (const f of files) {
     const type = f.contentType.toLowerCase();
-    if (!type.startsWith(contentPrefix)) {
-      return badRequest(`Only ${contentPrefix}* files are allowed.`);
+    if (!contentPrefixes.some((p) => type.startsWith(p))) {
+      return badRequest(
+        `Only ${contentPrefixes.map((p) => `${p}*`).join(" or ")} files are allowed.`,
+      );
     }
     if (type === "image/svg+xml" || type === "image/svg") {
       return badRequest("SVG images are not allowed.");
     }
+    const maxBytes = env.maxUploadBytesFor(type);
     if (f.size > maxBytes) {
       return badRequest(
-        `Each file must be ${Math.floor(maxBytes / (1024 * 1024))} MB or smaller.`,
+        `Each ${type.startsWith("video/") ? "video" : "image"} must be ${Math.floor(maxBytes / (1024 * 1024))} MB or smaller.`,
       );
     }
   }
