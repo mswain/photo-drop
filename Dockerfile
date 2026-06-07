@@ -16,8 +16,9 @@ FROM base AS builder
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Build the Next.js app (output: "standalone") and a self-contained migrate.cjs.
-RUN pnpm run build && pnpm run build:migrate
+# Build the Next.js app (output: "standalone") and self-contained CLI bundles
+# (migrate.cjs runs on startup; create-admin.cjs bootstraps an admin account).
+RUN pnpm run build && pnpm run build:migrate && pnpm run build:create-admin
 
 # ---------- runner: minimal runtime image ------------------------------------
 # The runner uses the self-contained Next standalone output + the bundled
@@ -33,8 +34,10 @@ ENV PORT=3000
 # Standalone server output (includes its own trimmed node_modules + server.js).
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
-# Bundled, dependency-free migration runner + the SQL migrations it applies.
+# Bundled, dependency-free CLIs: the migration runner + the SQL migrations it
+# applies, and the admin-bootstrap tool (run manually, e.g. `dokku run`).
 COPY --from=builder --chown=node:node /app/dist/migrate.cjs ./dist/migrate.cjs
+COPY --from=builder --chown=node:node /app/dist/create-admin.cjs ./dist/create-admin.cjs
 COPY --from=builder --chown=node:node /app/drizzle ./drizzle
 COPY --from=builder --chown=node:node /app/docker-entrypoint.sh ./docker-entrypoint.sh
 

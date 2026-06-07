@@ -16,6 +16,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "build:migrate": "esbuild src/db/migrate.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/migrate.cjs",
+    "build:create-admin": "esbuild scripts/create-admin.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/create-admin.cjs",
     "create-admin": "tsx scripts/create-admin.ts",
     "dev:bucket": "tsx scripts/create-bucket.ts"
   },
