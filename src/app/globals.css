@@ -610,7 +610,8 @@ table.table tbody tr:last-child td {
   cursor: pointer;
   transition: border-color 0.14s ease, background 0.14s ease;
 }
-.dropzone:hover {
+.dropzone:hover,
+.dropzone-active {
   border-color: var(--primary);
   background: var(--primary-50);
 }

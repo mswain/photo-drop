@@ -10,6 +10,7 @@ interface FileItem {
   status: FileStatus;
   progress: number; // 0..100
   error?: string;
+  retryable?: boolean; // true for upload/network failures (re-sending may succeed)
 }
 
 const CONCURRENCY = 4;
@@ -76,9 +77,13 @@ export function Uploader({
   acceptPrefixes: string[];
 }) {
   const [items, setItems] = useState<FileItem[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [activeBatches, setActiveBatches] = useState(0);
+  const [dragActive, setDragActive] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Derived from in-flight batches so concurrent selections don't race a flag.
+  const uploading = activeBatches > 0;
 
   const noun = mediaNoun(acceptPrefixes);
   const acceptAttr = acceptPrefixes.map((p) => `${p}*`).join(",");
@@ -121,14 +126,21 @@ export function Uploader({
     }
     setItems((prev) => [...prev, ...added]);
     if (inputRef.current) inputRef.current.value = "";
+
+    // Start uploading the valid files right away — no button press needed.
+    const toUpload = added.filter((it) => it.status === "queued");
+    if (toUpload.length > 0) void startUpload(toUpload);
   }
 
-  async function startUpload() {
-    const queued = items.filter((it) => it.status === "queued");
-    if (queued.length === 0) return;
+  /** Uploads an explicit batch of files. Safe to run concurrently with other batches. */
+  async function startUpload(batch: FileItem[]) {
+    if (batch.length === 0) return;
 
-    setUploading(true);
+    setActiveBatches((n) => n + 1);
     setTopError(null);
+    batch.forEach((it) =>
+      update(it.id, { status: "uploading", progress: 0, error: undefined }),
+    );
 
     try {
       // 1) Ask the server for one presigned PUT URL per file.
@@ -136,7 +148,7 @@ export function Uploader({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          files: queued.map((it) => ({
+          files: batch.map((it) => ({
             contentType: it.file.type || "application/octet-stream",
             size: it.file.size,
           })),
@@ -151,8 +163,8 @@ export function Uploader({
       const data: { uploads: { key: string; url: string }[] } = await res.json();
       const presigned = data.uploads;
 
-      // Pair each queued file with its presigned URL (same order).
-      const jobs = queued.map((it, idx) => ({ item: it, url: presigned[idx].url }));
+      // Pair each file with its presigned URL (same order).
+      const jobs = batch.map((it, idx) => ({ item: it, url: presigned[idx].url }));
 
       // 2) Upload directly to S3 with bounded concurrency.
       let cursor = 0;
@@ -168,6 +180,7 @@ export function Uploader({
           } catch (e) {
             update(job.item.id, {
               status: "error",
+              retryable: true,
               error: e instanceof Error ? e.message : "Upload failed",
             });
           }
@@ -178,21 +191,41 @@ export function Uploader({
         Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker),
       );
     } catch (e) {
-      setTopError(e instanceof Error ? e.message : "Upload failed.");
+      // Presigning failed for the whole batch — mark them retryable.
+      const msg = e instanceof Error ? e.message : "Upload failed.";
+      setTopError(msg);
+      const ids = new Set(batch.map((it) => it.id));
+      setItems((prev) =>
+        prev.map((it) =>
+          ids.has(it.id) && it.status !== "done"
+            ? { ...it, status: "error", retryable: true, error: msg }
+            : it,
+        ),
+      );
     } finally {
-      setUploading(false);
+      setActiveBatches((n) => n - 1);
     }
+  }
+
+  /** Re-attempts files that failed for a transient reason (not validation errors). */
+  function retryFailed() {
+    const failed = items.filter((it) => it.status === "error" && it.retryable);
+    if (failed.length > 0) void startUpload(failed);
   }
 
   function clearFinished() {
     setItems((prev) => prev.filter((it) => it.status !== "done"));
   }
 
-  const queuedCount = items.filter((it) => it.status === "queued").length;
   const doneCount = items.filter((it) => it.status === "done").length;
+  const retryableCount = items.filter(
+    (it) => it.status === "error" && it.retryable,
+  ).length;
   const totalSelected = items.length;
   const allDone =
-    totalSelected > 0 && items.every((it) => it.status === "done" || it.status === "error");
+    !uploading &&
+    totalSelected > 0 &&
+    items.every((it) => it.status === "done" || it.status === "error");
 
   return (
     <div className="upload-shell">
@@ -213,8 +246,27 @@ export function Uploader({
         )}
 
         <div
-          className="dropzone"
+          className={`dropzone${dragActive ? " dropzone-active" : ""}`}
           onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              inputRef.current?.click();
+            }
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+            addFiles(e.dataTransfer.files);
+          }}
           role="button"
           tabIndex={0}
         >
@@ -234,10 +286,10 @@ export function Uploader({
             </svg>
           </div>
           <p style={{ margin: 0, fontWeight: 620, fontSize: "1.02rem" }}>
-            Tap to choose {noun.plural}
+            {dragActive ? `Drop to upload` : `Tap or drag ${noun.plural} here`}
           </p>
           <p className="muted small" style={{ margin: "0.35rem 0 0" }}>
-            You can select multiple at once · {sizeHint}
+            Uploading starts automatically · {sizeHint}
           </p>
         </div>
 
@@ -268,27 +320,23 @@ export function Uploader({
               ))}
             </ul>
 
-            <div
-              className="row"
-              style={{ marginTop: "1.25rem", justifyContent: "center" }}
-            >
-              <button
-                className="btn btn-primary"
-                onClick={startUpload}
-                disabled={uploading || queuedCount === 0}
+            {(retryableCount > 0 || doneCount > 0) && !uploading && (
+              <div
+                className="row"
+                style={{ marginTop: "1.25rem", justifyContent: "center" }}
               >
-                {uploading
-                  ? "Uploading…"
-                  : queuedCount > 0
-                    ? `Upload ${queuedCount} file${queuedCount === 1 ? "" : "s"}`
-                    : "Nothing to upload"}
-              </button>
-              {doneCount > 0 && !uploading && (
-                <button className="btn" onClick={clearFinished}>
-                  Clear finished
-                </button>
-              )}
-            </div>
+                {retryableCount > 0 && (
+                  <button className="btn btn-primary" onClick={retryFailed}>
+                    Retry {retryableCount} failed
+                  </button>
+                )}
+                {doneCount > 0 && (
+                  <button className="btn" onClick={clearFinished}>
+                    Clear finished
+                  </button>
+                )}
+              </div>
+            )}
 
             <p className="muted small" style={{ textAlign: "center", marginTop: "0.75rem" }}>
               {doneCount}/{totalSelected} uploaded
