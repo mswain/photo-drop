@@ -69,12 +69,14 @@ export function Uploader({
   maxImageBytes,
   maxVideoBytes,
   acceptPrefixes,
+  maxBatchSize,
 }: {
   token: string;
   label: string | null;
   maxImageBytes: number;
   maxVideoBytes: number;
   acceptPrefixes: string[];
+  maxBatchSize: number;
 }) {
   const [items, setItems] = useState<FileItem[]>([]);
   const [activeBatches, setActiveBatches] = useState(0);
@@ -143,6 +145,19 @@ export function Uploader({
     );
 
     try {
+      // The presign endpoint caps how many files one request may describe, so
+      // large selections are presigned and uploaded chunk by chunk.
+      for (let i = 0; i < batch.length; i += maxBatchSize) {
+        await uploadChunk(batch.slice(i, i + maxBatchSize));
+      }
+    } finally {
+      setActiveBatches((n) => n - 1);
+    }
+  }
+
+  /** Presigns and uploads one chunk (at most maxBatchSize files). */
+  async function uploadChunk(batch: FileItem[]) {
+    try {
       // 1) Ask the server for one presigned PUT URL per file.
       const res = await fetch(`/api/upload/${token}/presign`, {
         method: "POST",
@@ -191,7 +206,7 @@ export function Uploader({
         Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker),
       );
     } catch (e) {
-      // Presigning failed for the whole batch — mark them retryable.
+      // Presigning failed for this chunk — mark its files retryable.
       const msg = e instanceof Error ? e.message : "Upload failed.";
       setTopError(msg);
       const ids = new Set(batch.map((it) => it.id));
@@ -202,8 +217,6 @@ export function Uploader({
             : it,
         ),
       );
-    } finally {
-      setActiveBatches((n) => n - 1);
     }
   }
 

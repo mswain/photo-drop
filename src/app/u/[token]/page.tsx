@@ -48,6 +48,7 @@ export default async function UploadPage({ params }: Props) {
         maxImageBytes={env.maxUploadBytes()}
         maxVideoBytes={env.maxVideoUploadBytes()}
         acceptPrefixes={env.allowedContentTypePrefixes()}
+        maxBatchSize={env.maxBatchSize()}
       />
     );
   }
