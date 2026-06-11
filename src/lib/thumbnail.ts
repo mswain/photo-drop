@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import convert from "heic-convert";
+import exifReader from "exif-reader";
 
 /**
  * Image thumbnailing, isolated behind one function so the underlying libraries
@@ -46,6 +47,41 @@ export interface ImageInfo {
   format: string | null;
   colorSpace: string | null;
   hasAlpha: boolean;
+  /**
+   * EXIF capture time as a timezone-less "YYYY-MM-DDTHH:mm:ss" wall-clock
+   * string — EXIF records the camera's local time with no zone, so this must
+   * never be shifted into another timezone.
+   */
+  dateTaken: string | null;
+}
+
+const EXIF_MARKER = Buffer.from("Exif\0\0", "ascii");
+
+/**
+ * EXIF payload of a HEIC/HEIF file. heic-convert's decoded JPEG carries no
+ * EXIF, so locate it in the original container instead. The Exif item's
+ * payload starts at the "Exif\0\0" marker and the TIFF structure within is
+ * self-limiting, so scanning for the marker beats parsing the ISO-BMFF box
+ * tree to find the item's exact bounds.
+ */
+function heifExif(buf: Buffer): Buffer | undefined {
+  const idx = buf.indexOf(EXIF_MARKER);
+  return idx >= 0 ? buf.subarray(idx) : undefined;
+}
+
+/** EXIF capture time ("date taken"), or null if absent/unreadable. */
+function exifDateTaken(exif: Buffer | undefined): string | null {
+  if (!exif) return null;
+  try {
+    const tags = exifReader(exif);
+    const date = tags.Photo?.DateTimeOriginal ?? tags.Image?.DateTime;
+    if (!(date instanceof Date) || isNaN(date.getTime())) return null;
+    // exif-reader assembles the Date via Date.UTC from the EXIF wall-clock
+    // fields, so the UTC view of the Date *is* the original wall time.
+    return date.toISOString().slice(0, 19);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -72,7 +108,11 @@ export function decodeImageInfo(
   const raw = metadata[IMAGE_INFO_METADATA_KEY];
   if (raw === undefined) return undefined;
   try {
-    return JSON.parse(raw) as ImageInfo | null;
+    const info = JSON.parse(raw) as ImageInfo | null;
+    // Info cached before a field existed (e.g. dateTaken) is treated as absent
+    // so the thumbnail regenerates once and the new field gets backfilled.
+    if (info && !("dateTaken" in info)) return undefined;
+    return info;
   } catch {
     return null;
   }
@@ -105,6 +145,7 @@ export async function extractImageInfo(input: Buffer): Promise<ImageInfo> {
       format: heif ? "heic" : meta.format ?? null,
       colorSpace: meta.space ?? null,
       hasAlpha: Boolean(meta.hasAlpha),
+      dateTaken: exifDateTaken(heif ? heifExif(input) : meta.exif),
     };
   } catch (err) {
     throw new UnsupportedImageError(

@@ -19,6 +19,10 @@ interface ImageInfo {
   format: string | null;
   colorSpace: string | null;
   hasAlpha: boolean;
+  // Timezone-less EXIF wall-clock time ("YYYY-MM-DDTHH:mm:ss"); parsing it
+  // with new Date() treats it as local, which keeps the displayed wall time
+  // identical to what the camera recorded.
+  dateTaken: string | null;
 }
 
 type ThumbState = {
@@ -553,8 +557,11 @@ export function KeyPhotos({ slug }: { slug: string }) {
                   : "";
                 return text ? ` · ${text}` : "";
               })()}
+              {currentThumb?.info?.dateTaken
+                ? ` · Taken ${new Date(currentThumb.info.dateTaken).toLocaleString()}`
+                : ""}
               {current.lastModified
-                ? ` · ${new Date(current.lastModified).toLocaleString()}`
+                ? ` · Uploaded ${new Date(current.lastModified).toLocaleString()}`
                 : ""}
             </div>
 
