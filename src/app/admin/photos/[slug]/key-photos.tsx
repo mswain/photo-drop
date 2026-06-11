@@ -86,16 +86,19 @@ function ThumbBox({ state, isVideo }: { state?: ThumbState; isVideo?: boolean })
   return <span className="spinner" aria-hidden="true" />;
 }
 
-/** Downloads a list of presigned S3 URLs by clicking hidden anchors. */
+/** Downloads a list of presigned S3 URLs via hidden iframes. Anchor clicks
+ * don't work for a batch: each click starts a top-level navigation that only
+ * becomes a download once S3's attachment response arrives, and the next
+ * click cancels the still-pending one — so only a single file survives.
+ * Iframes give every download its own browsing context. */
 async function triggerDownloads(urls: string[]) {
   for (const url of urls) {
-    const a = document.createElement("a");
-    a.href = url;
-    a.rel = "noopener";
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const frame = document.createElement("iframe");
+    frame.style.display = "none";
+    frame.src = url;
+    document.body.appendChild(frame);
+    // Keep the frame alive until S3 has responded and the download detached.
+    setTimeout(() => frame.remove(), 60_000);
     // Small gap so browsers don't coalesce/block the batch.
     await new Promise((r) => setTimeout(r, 300));
   }
