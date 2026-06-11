@@ -37,6 +37,82 @@ function isHeif(buf: Buffer): boolean {
   return HEIF_BRANDS.has(buf.toString("ascii", 8, 12).toLowerCase());
 }
 
+export interface ImageInfo {
+  /** Pixel dimensions as displayed (EXIF orientation already applied). */
+  width: number | null;
+  height: number | null;
+  /** Pixels per inch, when the file declares it. */
+  density: number | null;
+  format: string | null;
+  colorSpace: string | null;
+  hasAlpha: boolean;
+}
+
+/**
+ * S3 user-metadata key under which a thumbnail carries its original's
+ * ImageInfo, JSON-encoded. Its presence (even as "null", when extraction
+ * failed) marks the thumbnail as info-bearing; older thumbnails without it are
+ * regenerated once so the info gets backfilled.
+ */
+export const IMAGE_INFO_METADATA_KEY = "image-info";
+
+/** Encodes ImageInfo for storage as S3 object metadata. */
+export function encodeImageInfo(info: ImageInfo | null): Record<string, string> {
+  return { [IMAGE_INFO_METADATA_KEY]: JSON.stringify(info) };
+}
+
+/**
+ * Decodes ImageInfo from S3 object metadata. Returns the info, or null when
+ * the marker is present but extraction had failed, or undefined when the
+ * object predates info caching entirely.
+ */
+export function decodeImageInfo(
+  metadata: Record<string, string>,
+): ImageInfo | null | undefined {
+  const raw = metadata[IMAGE_INFO_METADATA_KEY];
+  if (raw === undefined) return undefined;
+  try {
+    return JSON.parse(raw) as ImageInfo | null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads technical metadata (dimensions, DPI, format, …) from an image buffer.
+ * HEIC/HEIF goes through the same WebAssembly decode as thumbnailing, since
+ * sharp's prebuilt binaries can't read it; the decoded JPEG loses the original
+ * density, so HEIC reports dimensions but no DPI.
+ */
+export async function extractImageInfo(input: Buffer): Promise<ImageInfo> {
+  try {
+    const heif = isHeif(input);
+    let source = input;
+    if (heif) {
+      const decoded = await convert({ buffer: input, format: "JPEG", quality: 0.92 });
+      source = Buffer.from(decoded);
+    }
+
+    const meta = await sharp(source, { failOn: "error" }).metadata();
+
+    // EXIF orientations 5-8 are 90°/270° rotations: the stored width/height are
+    // transposed relative to how the image displays, so swap them back.
+    const transposed = (meta.orientation ?? 1) >= 5;
+    return {
+      width: (transposed ? meta.height : meta.width) ?? null,
+      height: (transposed ? meta.width : meta.height) ?? null,
+      density: heif ? null : meta.density ?? null,
+      format: heif ? "heic" : meta.format ?? null,
+      colorSpace: meta.space ?? null,
+      hasAlpha: Boolean(meta.hasAlpha),
+    };
+  } catch (err) {
+    throw new UnsupportedImageError(
+      err instanceof Error ? err.message : "Unsupported image format",
+    );
+  }
+}
+
 /**
  * Resizes an image to fit within `maxPx` on its longest edge and re-encodes it
  * as JPEG (broad browser support — handles the common case where the original

@@ -12,13 +12,49 @@ interface PhotoItem {
   downloadUrl: string;
 }
 
-type ThumbState = { status: "loading" | "ready" | "error"; url?: string; error?: string };
+interface ImageInfo {
+  width: number | null;
+  height: number | null;
+  density: number | null;
+  format: string | null;
+  colorSpace: string | null;
+  hasAlpha: boolean;
+}
+
+type ThumbState = {
+  status: "loading" | "ready" | "error";
+  url?: string;
+  error?: string;
+  // Original's technical metadata, returned alongside the thumbnail URL
+  // (null when the server couldn't extract it).
+  info?: ImageInfo | null;
+};
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
   const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+/** "4032 × 3024 (12.2 MP) · 300 DPI · JPEG · sRGB" from whatever fields exist. */
+function formatImageInfo(info: ImageInfo): string {
+  const parts: string[] = [];
+  if (info.width && info.height) {
+    const mp = (info.width * info.height) / 1_000_000;
+    parts.push(
+      `${info.width} × ${info.height}${mp >= 0.1 ? ` (${mp.toFixed(1)} MP)` : ""}`,
+    );
+  }
+  if (info.density) parts.push(`${info.density} DPI`);
+  if (info.format) {
+    parts.push(info.format === "jpeg" ? "JPEG" : info.format.toUpperCase());
+  }
+  if (info.colorSpace) {
+    parts.push(info.colorSpace === "srgb" ? "sRGB" : info.colorSpace.toUpperCase());
+  }
+  if (info.hasAlpha) parts.push("alpha");
+  return parts.join(" · ");
 }
 
 /** Small thumbnail shown to the left of a row's filename. The image bytes load
@@ -210,7 +246,7 @@ export function KeyPhotos({ slug }: { slug: string }) {
         setThumbs((s) => ({
           ...s,
           [key]: r.ok
-            ? { status: "ready", url: d.url }
+            ? { status: "ready", url: d.url, info: d.info ?? null }
             : { status: "error", error: d.error || "Preview failed" },
         }));
       })
@@ -508,6 +544,15 @@ export function KeyPhotos({ slug }: { slug: string }) {
 
             <div className="small muted" style={{ marginTop: "0.6rem" }}>
               {formatBytes(current.size)}
+              {(() => {
+                if (!current.isVideo && currentThumb?.status === "loading") {
+                  return " · …";
+                }
+                const text = currentThumb?.info
+                  ? formatImageInfo(currentThumb.info)
+                  : "";
+                return text ? ` · ${text}` : "";
+              })()}
               {current.lastModified
                 ? ` · ${new Date(current.lastModified).toLocaleString()}`
                 : ""}

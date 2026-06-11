@@ -136,29 +136,6 @@ export async function movePrefix(
   return moved;
 }
 
-/** True if an object exists at the given key. */
-export async function objectExists(key: string): Promise<boolean> {
-  try {
-    await s3().send(new HeadObjectCommand({ Bucket: env.s3Bucket(), Key: key }));
-    return true;
-  } catch (err) {
-    if (
-      err &&
-      typeof err === "object" &&
-      ("name" in err) &&
-      ((err as { name?: string }).name === "NotFound" ||
-        (err as { name?: string }).name === "NoSuchKey")
-    ) {
-      return false;
-    }
-    // 404 surfaced via HTTP metadata on some S3-compatible servers.
-    const status = (err as { $metadata?: { httpStatusCode?: number } })
-      ?.$metadata?.httpStatusCode;
-    if (status === 404) return false;
-    throw err;
-  }
-}
-
 /** Reads an object's full body into a Buffer. */
 export async function getObjectBytes(key: string): Promise<Buffer> {
   const res = await s3().send(
@@ -168,11 +145,12 @@ export async function getObjectBytes(key: string): Promise<Buffer> {
   return Buffer.from(bytes);
 }
 
-/** Writes a buffer to S3 with the given content type. */
+/** Writes a buffer to S3 with the given content type and optional user metadata. */
 export async function putObject(
   key: string,
   body: Buffer,
   contentType: string,
+  metadata?: Record<string, string>,
 ): Promise<void> {
   await s3().send(
     new PutObjectCommand({
@@ -180,8 +158,40 @@ export async function putObject(
       Key: key,
       Body: body,
       ContentType: contentType,
+      Metadata: metadata,
     }),
   );
+}
+
+/**
+ * Returns an object's user metadata (x-amz-meta-*, keys lowercased by S3), or
+ * null if the object doesn't exist. One HEAD answers both "does it exist?" and
+ * "what's stored on it?".
+ */
+export async function headObjectMetadata(
+  key: string,
+): Promise<Record<string, string> | null> {
+  try {
+    const res = await s3().send(
+      new HeadObjectCommand({ Bucket: env.s3Bucket(), Key: key }),
+    );
+    return res.Metadata ?? {};
+  } catch (err) {
+    if (
+      err &&
+      typeof err === "object" &&
+      ("name" in err) &&
+      ((err as { name?: string }).name === "NotFound" ||
+        (err as { name?: string }).name === "NoSuchKey")
+    ) {
+      return null;
+    }
+    // 404 surfaced via HTTP metadata on some S3-compatible servers.
+    const status = (err as { $metadata?: { httpStatusCode?: number } })
+      ?.$metadata?.httpStatusCode;
+    if (status === 404) return null;
+    throw err;
+  }
 }
 
 export interface ListedFolder {
