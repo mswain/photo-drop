@@ -13,32 +13,6 @@ function s3Origin(): string {
 }
 
 /**
- * Exact origin the browser hits for presigned S3 URLs — needed for frame-src,
- * which (unlike img-src/connect-src) doesn't get a blanket `https:` and so must
- * name the bucket origin precisely. With a custom endpoint this is the endpoint
- * itself (path-style) or the bucket-prefixed host (virtual-hosted style); on
- * AWS proper it's the regional virtual-hosted bucket URL.
- */
-function s3DownloadOrigin(): string {
-  const bucket = process.env.S3_BUCKET;
-  const ep = process.env.S3_ENDPOINT;
-  if (ep) {
-    try {
-      const u = new URL(ep);
-      if (process.env.S3_FORCE_PATH_STYLE !== "true" && bucket) {
-        u.host = `${bucket}.${u.host}`;
-      }
-      return u.origin;
-    } catch {
-      return "";
-    }
-  }
-  if (!bucket) return "";
-  const region = process.env.AWS_REGION || "us-east-1";
-  return `https://${bucket}.s3.${region}.amazonaws.com`;
-}
-
-/**
  * Per-request Content-Security-Policy. Scripts are locked to same-origin plus a
  * fresh nonce (Next.js applies it to its own inline bootstrap scripts; we apply
  * it to our theme script). Inline styles are allowed because the UI uses inline
@@ -48,7 +22,6 @@ function buildCsp(nonce: string): string {
   const prod = process.env.NODE_ENV === "production";
   const s3 = s3Origin();
   const extra = s3 ? ` ${s3}` : "";
-  const frameS3 = s3DownloadOrigin();
   // Next.js dev (HMR / React Refresh) needs eval + inline scripts; production
   // gets the strict nonce-based policy.
   const scriptSrc = prod
@@ -66,10 +39,6 @@ function buildCsp(nonce: string): string {
     `media-src 'self' data: blob: https:${extra}`,
     `font-src 'self'`,
     `connect-src 'self' https:${extra}${prod ? "" : " ws: wss:"}`,
-    // Batch downloads load presigned S3 URLs in hidden iframes (see
-    // triggerDownloads); without this, frame-src falls back to default-src
-    // ('self') and every frame is blocked.
-    `frame-src 'self'${frameS3 ? ` ${frameS3}` : ""}`,
     `object-src 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,

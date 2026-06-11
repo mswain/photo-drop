@@ -86,22 +86,66 @@ function ThumbBox({ state, isVideo }: { state?: ThumbState; isVideo?: boolean })
   return <span className="spinner" aria-hidden="true" />;
 }
 
-/** Downloads a list of presigned S3 URLs via hidden iframes. Anchor clicks
- * don't work for a batch: each click starts a top-level navigation that only
- * becomes a download once S3's attachment response arrives, and the next
- * click cancels the still-pending one — so only a single file survives.
- * Iframes give every download its own browsing context. */
-async function triggerDownloads(urls: string[]) {
-  for (const url of urls) {
-    const frame = document.createElement("iframe");
-    frame.style.display = "none";
-    frame.src = url;
-    document.body.appendChild(frame);
-    // Keep the frame alive until S3 has responded and the download detached.
-    setTimeout(() => frame.remove(), 60_000);
-    // Small gap so browsers don't coalesce/block the batch.
-    await new Promise((r) => setTimeout(r, 300));
-  }
+/** Clicks a transient hidden anchor (the standard download trigger). */
+function clickAnchor(href: string, download?: string) {
+  const a = document.createElement("a");
+  a.href = href;
+  if (download !== undefined) a.download = download;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** Minimal typing for the (Chromium-only) File System Access save dialog. */
+type SaveFilePicker = (opts: {
+  suggestedName?: string;
+  types?: { description?: string; accept: Record<string, string[]> }[];
+}) => Promise<FileSystemFileHandle>;
+
+/**
+ * Streams the given presigned URLs into a single zip, fetching each file
+ * straight from S3 (the bucket's CORS allows GET from this origin — see
+ * s3-cors.json) so the bytes never pass through the app server. Entries are
+ * stored, not deflated: photos and videos are already compressed. Each output
+ * chunk is handed to `write` and awaited, so a disk-backed sink applies
+ * backpressure and memory stays flat no matter the batch size.
+ */
+async function streamZip(
+  entries: { name: string; url: string }[],
+  write: (chunk: Uint8Array) => Promise<void> | void,
+): Promise<void> {
+  const { Zip, ZipPassThrough } = await import("fflate");
+  await new Promise<void>((resolve, reject) => {
+    // Zip output arrives via this callback; chain writes so they stay ordered
+    // and so the fetch loop below can await the sink catching up.
+    let pending = Promise.resolve();
+    const zip = new Zip((err, data, final) => {
+      if (err) return reject(err);
+      pending = pending.then(() => write(data)).catch(reject);
+      if (final) pending.then(resolve, reject);
+    });
+    (async () => {
+      for (const { name, url } of entries) {
+        const res = await fetch(url);
+        if (!res.ok || !res.body) {
+          throw new Error(`Download failed for ${name} (${res.status})`);
+        }
+        const entry = new ZipPassThrough(name);
+        zip.add(entry);
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          entry.push(value);
+          await pending;
+        }
+        entry.push(new Uint8Array(0), true);
+      }
+      zip.end();
+    })().catch(reject);
+  });
 }
 
 export function KeyPhotos({ slug }: { slug: string }) {
@@ -182,8 +226,34 @@ export function KeyPhotos({ slug }: { slug: string }) {
 
   async function downloadKeys(keys: string[]) {
     if (keys.length === 0) return;
+    // Single file: navigate the redirect route; S3 serves it as an attachment.
+    if (keys.length === 1) {
+      clickAnchor(`/api/admin/photos/download?key=${encodeURIComponent(keys[0])}`);
+      return;
+    }
+    // Batch: one zip, assembled in the browser from direct S3 fetches.
+    // Browsers throttle and prompt on multiple programmatic downloads, so a
+    // batch has to be exactly one download.
+    const picker = (
+      window as Window & { showSaveFilePicker?: SaveFilePicker }
+    ).showSaveFilePicker;
     setBusy(true);
     try {
+      // Ask where to save first (Chromium): the picker needs the click's user
+      // activation, which would expire during the presign round-trip.
+      let writable: FileSystemWritableFileStream | null = null;
+      if (picker) {
+        try {
+          const handle = await picker({
+            suggestedName: `${slug}.zip`,
+            types: [{ description: "Zip archive", accept: { "application/zip": [".zip"] } }],
+          });
+          writable = await handle.createWritable();
+        } catch {
+          return; // user cancelled the save dialog
+        }
+      }
+
       const res = await apiFetch("/api/admin/photos/download-urls", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -191,7 +261,36 @@ export function KeyPhotos({ slug }: { slug: string }) {
       });
       if (!res.ok) throw new Error("Could not prepare downloads");
       const { urls } = (await res.json()) as { urls: { key: string; url: string }[] };
-      await triggerDownloads(urls.map((u) => u.url));
+      const entries = urls.map((u) => ({
+        name: u.key.split("/").pop() ?? u.key,
+        url: u.url,
+      }));
+
+      if (writable) {
+        // Stream straight to disk — flat memory regardless of batch size.
+        try {
+          await streamZip(entries, (chunk) =>
+            writable!.write(chunk as Uint8Array<ArrayBuffer>),
+          );
+          await writable.close();
+        } catch (e) {
+          await writable.abort();
+          throw e;
+        }
+      } else {
+        // Firefox/Safari have no save-stream API; build the zip as a blob.
+        // Fine for photo batches, but very large video batches are bounded by
+        // the browser's blob storage.
+        const chunks: BlobPart[] = [];
+        await streamZip(entries, (chunk) => {
+          chunks.push(chunk as BlobPart);
+        });
+        const blobUrl = URL.createObjectURL(
+          new Blob(chunks, { type: "application/zip" }),
+        );
+        clickAnchor(blobUrl, `${slug}.zip`);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "Download failed");
     } finally {
