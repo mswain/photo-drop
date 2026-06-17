@@ -2,6 +2,7 @@ import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { folders } from "@/db/schema";
+import { env } from "@/lib/env";
 import { KeyPhotos } from "./key-photos";
 import { FolderView } from "./folder-view";
 import { DeleteFolderButton } from "./delete-folder-button";
@@ -38,7 +39,13 @@ export default async function FolderPage({ params }: Props) {
       </div>
 
       {folder ? (
-        <FolderView slug={slug} />
+        <FolderView
+          slug={slug}
+          uploadConfig={{
+            maxBatchSize: env.maxBatchSize(),
+            acceptPrefixes: env.allowedContentTypePrefixes(),
+          }}
+        />
       ) : (
         <>
           <div className="alert alert-info">

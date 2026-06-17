@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/client-fetch";
+import { FolderUploader, type UploadConfig } from "./folder-uploader";
 
 interface PhotoItem {
   key: string;
@@ -148,7 +149,13 @@ async function streamZip(
   });
 }
 
-export function KeyPhotos({ slug }: { slug: string }) {
+export function KeyPhotos({
+  slug,
+  uploadConfig,
+}: {
+  slug: string;
+  uploadConfig?: UploadConfig;
+}) {
   const [items, setItems] = useState<PhotoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -472,6 +479,15 @@ export function KeyPhotos({ slug }: { slug: string }) {
 
   return (
     <div>
+      {uploadConfig && (
+        <FolderUploader
+          slug={slug}
+          maxBatchSize={uploadConfig.maxBatchSize}
+          acceptPrefixes={uploadConfig.acceptPrefixes}
+          onUploaded={() => setReloadKey((k) => k + 1)}
+        />
+      )}
+
       <div className="row" style={{ justifyContent: "flex-end", marginBottom: "0.85rem" }}>
         <button className="btn btn-sm" onClick={() => setReloadKey((k) => k + 1)}>
           Refresh
