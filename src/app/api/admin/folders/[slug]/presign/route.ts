@@ -6,6 +6,7 @@ import { requireSession } from "@/lib/session";
 import { presignRequestSchema } from "@/lib/validation";
 import { buildObjectKey } from "@/lib/ids";
 import { presignUpload } from "@/lib/s3";
+import { contentTypeError } from "@/lib/upload-policy";
 import { env } from "@/lib/env";
 import { handle, json, badRequest, notFound } from "@/lib/http";
 
@@ -54,20 +55,15 @@ export const POST = handle(async (req: NextRequest, ctx: Ctx) => {
   const { files } = parsed.data;
 
   // Per-file policy: allowed media types only (but not SVG, which can carry
-  // script). No per-file size cap — only S3's hard single-PUT ceiling.
-  const contentPrefixes = env.allowedContentTypePrefixes();
+  // script). No per-file size cap — only S3's hard single-PUT ceiling. Files
+  // above that go through the multipart route instead.
   for (const f of files) {
-    const type = f.contentType.toLowerCase();
-    if (!contentPrefixes.some((p) => type.startsWith(p))) {
-      return badRequest(
-        `Only ${contentPrefixes.map((p) => `${p}*`).join(" or ")} files are allowed.`,
-      );
-    }
-    if (type === "image/svg+xml" || type === "image/svg") {
-      return badRequest("SVG images are not allowed.");
-    }
+    const typeError = contentTypeError(f.contentType);
+    if (typeError) return badRequest(typeError);
     if (f.size > MAX_SINGLE_PUT_BYTES) {
-      return badRequest("Each file must be 5 GB or smaller.");
+      return badRequest(
+        "This file is too large for a single upload — use multipart upload.",
+      );
     }
   }
 

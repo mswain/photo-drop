@@ -6,6 +6,10 @@ import {
   CopyObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
   type _Object,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -52,6 +56,81 @@ export async function presignUpload(
   return getSignedUrl(s3(), command, {
     expiresIn: env.presignExpirySeconds(),
   });
+}
+
+/**
+ * Multipart upload, used for files above S3's 5 GiB single-PUT limit (admin
+ * uploads only). The flow is: create -> presign one URL per part -> the browser
+ * PUTs each part directly to S3 and collects its ETag -> complete (or abort on
+ * failure). The app only signs URLs and stitches the result; the bytes go
+ * straight to S3, same as the single-PUT path.
+ */
+export async function createMultipartUpload(
+  key: string,
+  contentType?: string,
+): Promise<string> {
+  const res = await s3().send(
+    new CreateMultipartUploadCommand({
+      Bucket: env.s3Bucket(),
+      Key: key,
+      ContentType: contentType,
+    }),
+  );
+  if (!res.UploadId) throw new Error("S3 did not return an upload id");
+  return res.UploadId;
+}
+
+/**
+ * Presigned PUT URL for one part. `expiresIn` is given (and longer than the
+ * single-PUT default) because a large upload can run for hours, and every
+ * part's URL is signed up front — they must outlive the whole transfer.
+ */
+export async function presignUploadPart(params: {
+  key: string;
+  uploadId: string;
+  partNumber: number;
+  expiresIn: number;
+}): Promise<string> {
+  const command = new UploadPartCommand({
+    Bucket: env.s3Bucket(),
+    Key: params.key,
+    UploadId: params.uploadId,
+    PartNumber: params.partNumber,
+  });
+  return getSignedUrl(s3(), command, { expiresIn: params.expiresIn });
+}
+
+export async function completeMultipartUpload(
+  key: string,
+  uploadId: string,
+  parts: { partNumber: number; etag: string }[],
+): Promise<void> {
+  await s3().send(
+    new CompleteMultipartUploadCommand({
+      Bucket: env.s3Bucket(),
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: {
+        // S3 requires parts in ascending PartNumber order.
+        Parts: [...parts]
+          .sort((a, b) => a.partNumber - b.partNumber)
+          .map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })),
+      },
+    }),
+  );
+}
+
+export async function abortMultipartUpload(
+  key: string,
+  uploadId: string,
+): Promise<void> {
+  await s3().send(
+    new AbortMultipartUploadCommand({
+      Bucket: env.s3Bucket(),
+      Key: key,
+      UploadId: uploadId,
+    }),
+  );
 }
 
 /**

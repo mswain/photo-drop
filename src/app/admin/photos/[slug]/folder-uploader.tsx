@@ -16,6 +16,11 @@ interface FileItem {
 
 const CONCURRENCY = 4;
 
+// Files larger than this are uploaded via S3 multipart (parallel parts, each
+// with its own presigned URL); smaller files take the simpler single-PUT path.
+// 100 MiB matches the server's part size.
+const MULTIPART_THRESHOLD = 100 * 1024 * 1024;
+
 /** Server-derived upload settings threaded down to the admin uploader. */
 export interface UploadConfig {
   maxBatchSize: number;
@@ -48,6 +53,36 @@ function putToS3(
     };
     xhr.onerror = () => reject(new Error("Network error during upload"));
     xhr.send(file);
+  });
+}
+
+/**
+ * PUTs one multipart part to S3 and returns its ETag (needed to complete the
+ * upload). The bucket's CORS must expose the ETag response header — the repo's
+ * s3-cors.json does.
+ */
+function putPart(
+  url: string,
+  blob: Blob,
+  onProgress: (loadedBytes: number) => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded);
+    };
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+        return;
+      }
+      const etag = xhr.getResponseHeader("ETag");
+      if (etag) resolve(etag);
+      else reject(new Error("Upload succeeded but S3 returned no ETag."));
+    };
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.send(blob);
   });
 }
 
@@ -101,8 +136,19 @@ export function FolderUploader({
     setItems((prev) => [...prev, ...added]);
     if (inputRef.current) inputRef.current.value = "";
 
-    const toUpload = added.filter((it) => it.status === "queued");
-    if (toUpload.length > 0) void startUpload(toUpload);
+    enqueue(added.filter((it) => it.status === "queued"));
+  }
+
+  /**
+   * Dispatches files by size: large files each take their own multipart upload,
+   * small files share the batched single-PUT path.
+   */
+  function enqueue(batch: FileItem[]) {
+    if (batch.length === 0) return;
+    const small = batch.filter((it) => it.file.size <= MULTIPART_THRESHOLD);
+    const large = batch.filter((it) => it.file.size > MULTIPART_THRESHOLD);
+    if (small.length > 0) void startUpload(small);
+    for (const it of large) void startLargeUpload(it);
   }
 
   /** Uploads an explicit batch of files. Safe to run concurrently. */
@@ -184,9 +230,104 @@ export function FolderUploader({
     }
   }
 
+  /** Uploads one large file via S3 multipart, reporting aggregate progress. */
+  async function startLargeUpload(item: FileItem) {
+    setActiveBatches((n) => n + 1);
+    setTopError(null);
+    update(item.id, { status: "uploading", progress: 0, error: undefined });
+    try {
+      await multipartUpload(item);
+      update(item.id, { status: "done", progress: 100 });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Upload failed";
+      setTopError(message);
+      update(item.id, { status: "error", retryable: true, error: message });
+    } finally {
+      setActiveBatches((n) => n - 1);
+      onUploaded();
+    }
+  }
+
+  async function multipartUpload(item: FileItem) {
+    const file = item.file;
+
+    // 1) Start the upload; the server hands back a presigned PUT URL per part.
+    const createRes = await apiFetch(`/api/admin/folders/${slug}/multipart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        op: "create",
+        contentType: file.type || "application/octet-stream",
+        size: file.size,
+      }),
+    });
+    if (!createRes.ok) {
+      const data = await createRes.json().catch(() => ({}));
+      throw new Error(data.error || "Could not start the upload.");
+    }
+    const { key, uploadId, partSize, urls } = (await createRes.json()) as {
+      key: string;
+      uploadId: string;
+      partSize: number;
+      urls: { partNumber: number; url: string }[];
+    };
+
+    try {
+      // 2) Upload the parts with bounded concurrency, summing bytes for a single
+      //    file-level progress bar. Hold at 99% until complete() confirms.
+      const loaded = new Array<number>(urls.length).fill(0);
+      const reportProgress = () => {
+        const sum = loaded.reduce((a, b) => a + b, 0);
+        update(item.id, {
+          progress: Math.min(99, Math.round((sum / file.size) * 100)),
+        });
+      };
+
+      const parts = new Array<{ partNumber: number; etag: string }>(urls.length);
+      let cursor = 0;
+      async function worker() {
+        while (cursor < urls.length) {
+          const i = cursor++;
+          const { partNumber, url } = urls[i];
+          const start = i * partSize;
+          const blob = file.slice(start, Math.min(start + partSize, file.size));
+          const etag = await putPart(url, blob, (bytes) => {
+            loaded[i] = bytes;
+            reportProgress();
+          });
+          loaded[i] = blob.size;
+          reportProgress();
+          parts[i] = { partNumber, etag };
+        }
+      }
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, urls.length) }, worker),
+      );
+
+      // 3) Stitch the parts into the final object.
+      const completeRes = await apiFetch(`/api/admin/folders/${slug}/multipart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ op: "complete", key, uploadId, parts }),
+      });
+      if (!completeRes.ok) {
+        const data = await completeRes.json().catch(() => ({}));
+        throw new Error(data.error || "Could not finish the upload.");
+      }
+    } catch (e) {
+      // Best-effort: discard the partial upload so its parts aren't billed.
+      void apiFetch(`/api/admin/folders/${slug}/multipart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ op: "abort", key, uploadId }),
+      }).catch(() => {});
+      throw e;
+    }
+  }
+
   function retryFailed() {
     const failed = items.filter((it) => it.status === "error" && it.retryable);
-    if (failed.length > 0) void startUpload(failed);
+    enqueue(failed);
   }
 
   function clearFinished() {

@@ -60,6 +60,38 @@ export const presignRequestSchema = z.object({
     .max(env.maxBatchSize()),
 });
 
+/**
+ * Admin multipart upload control messages. `create` starts an upload for a
+ * single large file; `complete` finalizes it from the parts' ETags; `abort`
+ * discards a failed/cancelled upload so no dangling parts are billed.
+ */
+export const multipartSchema = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("create"),
+    contentType: z.string().min(1).max(255),
+    size: z.number().int().positive(),
+  }),
+  z.object({
+    op: z.literal("complete"),
+    key: z.string().min(1).max(2048),
+    uploadId: z.string().min(1).max(2048),
+    parts: z
+      .array(
+        z.object({
+          partNumber: z.number().int().min(1).max(10_000),
+          etag: z.string().min(1).max(255),
+        }),
+      )
+      .min(1)
+      .max(10_000),
+  }),
+  z.object({
+    op: z.literal("abort"),
+    key: z.string().min(1).max(2048),
+    uploadId: z.string().min(1).max(2048),
+  }),
+]);
+
 export const photosQuerySchema = z.object({
   slug: emptyToUndefined(z.string().max(255)),
   cursor: emptyToUndefined(z.string().max(4096)),
