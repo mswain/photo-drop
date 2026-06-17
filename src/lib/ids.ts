@@ -1,9 +1,9 @@
-import { randomUUID, randomBytes } from "crypto";
+import { randomBytes } from "crypto";
 
 /**
  * Maps common image content-types to file extensions. Used only to give the
- * GUID object key a sensible suffix so downloads land with a usable filename.
- * We never read or store the uploader's original filename.
+ * object key a sensible suffix so downloads land with a usable filename. We
+ * never read or store the uploader's original filename.
  */
 const CONTENT_TYPE_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -82,9 +82,46 @@ export function newLinkToken(): string {
 }
 
 /**
- * Builds a GUID-based S3 object key under the given directory prefix. The
- * stored filename is always a GUID; an extension is appended (derived from the
- * content-type) purely so downloads and content-type sniffing behave sensibly.
+ * Crockford Base32 alphabet, in ascending value order — so the lexicographic
+ * order of encoded strings matches the numeric order of what they encode.
+ */
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+// Ceiling of a 48-bit millisecond timestamp. We store `MAX_TIME - now` so that
+// a LATER time encodes to a LEXICOGRAPHICALLY SMALLER string.
+const MAX_TIME = 2 ** 48 - 1;
+
+/** Encodes a non-negative integer as `len` big-endian Crockford Base32 chars. */
+function encodeBase32(value: number, len: number): string {
+  let out = "";
+  for (let i = 0; i < len; i++) {
+    out = CROCKFORD[value % 32] + out;
+    value = Math.floor(value / 32);
+  }
+  return out;
+}
+
+/**
+ * A 26-char, ULID-shaped id whose keys sort NEWEST-FIRST in plain lexicographic
+ * order. A normal ULID sorts oldest-first (its leading 48-bit timestamp ascends
+ * with time); we encode `MAX_TIME - now` instead, so a later upload yields a
+ * smaller string. The trailing 80 bits are random for uniqueness within a
+ * millisecond. This lets S3's key-ordered listing return the most recent
+ * uploads first with no in-app sorting.
+ */
+export function newSortableId(): string {
+  const time = encodeBase32(MAX_TIME - Date.now(), 10);
+  const rand = randomBytes(16);
+  let suffix = "";
+  // 256 % 32 === 0, so `byte % 32` is an unbiased Base32 digit.
+  for (let i = 0; i < rand.length; i++) suffix += CROCKFORD[rand[i] % 32];
+  return time + suffix;
+}
+
+/**
+ * Builds an S3 object key under the given directory prefix. The filename is a
+ * time-sortable id (see `newSortableId` — newest sorts first); an extension is
+ * appended (derived from the content-type) purely so downloads and content-type
+ * sniffing behave sensibly.
  *
  * `prefix` is the link's full directory and must end with "/"
  * (e.g. "jims-wedding/" or "uploads/jims-wedding/").
@@ -93,11 +130,11 @@ export function buildObjectKey(params: {
   prefix: string;
   contentType?: string | null;
 }): string {
-  const guid = randomUUID();
+  const id = newSortableId();
   const ext = params.contentType
     ? CONTENT_TYPE_EXT[params.contentType.toLowerCase()]
     : undefined;
-  const name = ext ? `${guid}.${ext}` : guid;
+  const name = ext ? `${id}.${ext}` : id;
   return `${params.prefix}${name}`;
 }
 
